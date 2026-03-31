@@ -11,6 +11,8 @@ import {
   Check,
   Car,
   Route,
+  ClipboardList,
+  UserRound,
 } from "lucide-react";
 import { AMapProvider } from "@/components/amap-loader";
 import { DriverList } from "@/components/activity/driver-list";
@@ -26,6 +28,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { formatActivityDateDisplay } from "@/lib/activity-date";
 import type { TripDashboardData } from "../types";
 import { getMyRide } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
@@ -41,6 +45,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
   const [pendingLeave, setPendingLeave] = useState(false);
   const [pendingClose, setPendingClose] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [mobileSection, setMobileSection] = useState<"summary" | "assignments" | "mine">("mine");
 
   const refresh = useCallback(async () => {
     try {
@@ -83,6 +88,13 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   const isOrganizer = user?.id != null && data?.trip.created_by === user.id;
   const isClosed = data?.status === "closed";
+  const tripDateLabel = formatActivityDateDisplay(data?.trip.event_at ?? null);
+
+  const mobileTabs = [
+    { key: "summary" as const, label: "摘要", icon: ClipboardList },
+    { key: "assignments" as const, label: "编组", icon: Route },
+    { key: "mine" as const, label: "我的", icon: UserRound },
+  ];
 
   async function handleAutoAssign() {
     if (!data) return;
@@ -148,46 +160,97 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   return (
     <div className="flex flex-1 flex-col bg-muted/20">
-      <header className="border-b bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4">
-          <div className="flex min-w-0 items-center gap-3">
+      <header className="border-b bg-background/95 backdrop-blur">
+        <div className="mx-auto max-w-6xl px-4 py-3 sm:py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2.5 sm:items-center sm:gap-3">
             <Button
               nativeButton={false}
               render={<Link href="/" />}
               variant="ghost"
               size="icon-sm"
+              className="mt-0.5 shrink-0 sm:mt-0"
             >
               <ArrowLeft className="size-4" />
             </Button>
-            <div className="min-w-0">
-              <div className="truncate font-semibold">{data.trip.name}</div>
-              <div className="text-xs text-muted-foreground">
-                单页控制台：概览、编组、我的资料都在这里
+              <div className="min-w-0">
+                <div className="truncate text-xl font-semibold leading-tight sm:text-base">
+                  {data.trip.name}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:hidden">
+                  {tripDateLabel ? <span>{tripDateLabel}</span> : null}
+                  <span>·</span>
+                  <span>{isOrganizer ? "你是发起人" : "拼车控制台"}</span>
+                </div>
+                <div className="mt-1 hidden text-xs text-muted-foreground sm:block">
+                  单页控制台：概览、编组、我的资料都在这里
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleCopyInvite}>
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
+              onClick={handleCopyInvite}
+            >
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied ? "已复制" : "复制邀请"}
+              <span className="hidden sm:inline">{copied ? "已复制" : "复制邀请"}</span>
             </Button>
             {user ? (
-              <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
+                onClick={() => supabase.auth.signOut()}
+              >
                 <LogOut className="size-4" />
-                退出
+                <span className="hidden sm:inline">退出</span>
               </Button>
             ) : null}
+            </div>
+          </div>
+          <div className="mt-3 hidden items-center gap-2 sm:flex">
+            {tripDateLabel ? <Badge variant="outline">{tripDateLabel}</Badge> : null}
+            <Badge variant={isClosed ? "secondary" : "outline"}>
+              {isClosed ? "已关闭" : isOrganizer ? "发起人视角" : "成员视角"}
+            </Badge>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 py-6">
-        <TripSummaryCard data={data} />
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:py-6">
+        <div className="sm:hidden">
+          <div className="sticky top-0 z-10 rounded-2xl border bg-background/90 p-1 backdrop-blur">
+            <div className="grid grid-cols-3 gap-1">
+              {mobileTabs.map((tab) => {
+                const Icon = tab.icon;
+                const active = mobileSection === tab.key;
+                return (
+                  <Button
+                    key={tab.key}
+                    type="button"
+                    variant={active ? "default" : "ghost"}
+                    className="h-auto flex-col gap-1 rounded-xl py-2 text-xs"
+                    onClick={() => setMobileSection(tab.key)}
+                  >
+                    <Icon className="size-4" />
+                    {tab.label}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
 
-        <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="hidden sm:block">
+          <TripSummaryCard data={data} />
+        </div>
+
+        <section className="hidden gap-6 xl:grid xl:grid-cols-[1.15fr_0.85fr]">
           <div className="space-y-6">
             <Card>
-              <CardHeader className="flex flex-row items-start justify-between gap-4">
+              <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <CardTitle>编组结果</CardTitle>
                   <CardDescription>
@@ -198,7 +261,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   <Button
                     onClick={() => void handleAutoAssign()}
                     disabled={pendingAssign || isClosed}
-                    className="shrink-0"
+                    className="w-full shrink-0 sm:w-auto"
                   >
                     <Shuffle className="size-4" />
                     {pendingAssign ? "编组中..." : "自动编组"}
@@ -322,6 +385,147 @@ function DashboardInner({ tripId }: { tripId: string }) {
               </Card>
             ) : null}
           </div>
+        </section>
+
+        <section className="space-y-4 sm:hidden">
+          {mobileSection === "summary" ? (
+            <>
+              <TripSummaryCard data={data} compact />
+              <Card>
+                <CardHeader>
+                  <CardTitle>我的乘车结果</CardTitle>
+                  <CardDescription>先看这次出行里你与哪辆车相关。</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  {!myMember ? (
+                    <p className="text-muted-foreground">
+                      你还未加入这趟行程，请先通过邀请页确认加入。
+                    </p>
+                  ) : myMember.has_car === 1 ? (
+                    <div className="rounded-xl border bg-background px-4 py-3">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Car className="size-4 text-emerald-600" />
+                        你是司机
+                      </div>
+                      <p className="mt-1 text-muted-foreground">
+                        当前设置可载 {myMember.seats} 人，请在“我的”栏继续维护资料。
+                      </p>
+                    </div>
+                  ) : myRide ? (
+                    <div className="rounded-xl border bg-background px-4 py-3">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Route className="size-4 text-emerald-600" />
+                        你当前乘坐 {myRide.nickname} 的车
+                      </div>
+                      <p className="mt-1 text-muted-foreground">
+                        {myRide.location_name
+                          ? `司机出发地：${myRide.location_name}`
+                          : "司机尚未填写出发地。"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed bg-background px-4 py-3">
+                      <div className="font-medium">你暂时还未分配车辆</div>
+                      <p className="mt-1 text-muted-foreground">
+                        先把自己的出发地和是否开车填写完整，发起人再统一编组。
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : null}
+
+          {mobileSection === "assignments" ? (
+            <Card>
+              <CardHeader className="flex flex-col gap-4">
+                <div>
+                  <CardTitle>编组结果</CardTitle>
+                  <CardDescription>手机端单独一栏查看车辆与待安排成员。</CardDescription>
+                </div>
+                {isOrganizer ? (
+                  <Button
+                    onClick={() => void handleAutoAssign()}
+                    disabled={pendingAssign || isClosed}
+                    className="w-full"
+                  >
+                    <Shuffle className="size-4" />
+                    {pendingAssign ? "编组中..." : "自动编组"}
+                  </Button>
+                ) : null}
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <DriverList
+                  participants={data.members}
+                  currentUserId={user?.id}
+                  activityId={data.trip.id}
+                  onUpdated={refresh}
+                  canManageAssignments={Boolean(isOrganizer)}
+                  interactionsDisabled={isClosed}
+                />
+                <UnassignedList
+                  participants={data.members}
+                  currentUserId={user?.id}
+                  activityId={data.trip.id}
+                  onUpdated={refresh}
+                  canManageAssignments={Boolean(isOrganizer)}
+                  interactionsDisabled={isClosed}
+                />
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {mobileSection === "mine" ? (
+            <>
+              {myMember ? (
+                <MyInfoPanel
+                  participant={myMember}
+                  activityId={data.trip.id}
+                  onUpdated={refresh}
+                  destCenter={[data.trip.dest_lng, data.trip.dest_lat]}
+                  activity={data.trip}
+                  participants={data.members}
+                  isOrganizer={Boolean(isOrganizer)}
+                  disbanding={pendingClose}
+                  onCloseTrip={handleCloseTrip}
+                />
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>我的资料</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Button
+                      nativeButton={false}
+                      render={<Link href={`/t/${data.trip.id}`} />}
+                      className="w-full"
+                    >
+                      去邀请页加入并填写资料
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {!isOrganizer && myMember ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>退出行程</CardTitle>
+                    <CardDescription>普通成员可以退出；发起人只能关闭整趟行程。</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      disabled={pendingLeave || isClosed}
+                      onClick={() => void handleLeave()}
+                    >
+                      {pendingLeave ? "退出中..." : "退出这趟行程"}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : null}
+            </>
+          ) : null}
         </section>
       </main>
 

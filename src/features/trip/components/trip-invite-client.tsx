@@ -158,7 +158,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
         </div>
       </header>
 
-      <main className="mx-auto grid w-full max-w-4xl gap-6 px-4 py-8 lg:grid-cols-[1fr_1fr]">
+      <main className="mx-auto grid w-full max-w-4xl gap-4 px-4 py-4 sm:gap-6 sm:py-8 lg:grid-cols-[1fr_1fr]">
         <TripSummaryCard data={data} />
 
         <Card>
