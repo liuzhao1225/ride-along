@@ -11,12 +11,14 @@ export function UnassignedList({
   currentUserId,
   activityId,
   onUpdated,
+  canManageAssignments = false,
   interactionsDisabled = false,
 }: {
   participants: Participant[];
   currentUserId?: string;
   activityId: string;
   onUpdated: () => void;
+  canManageAssignments?: boolean;
   interactionsDisabled?: boolean;
 }) {
   const unassigned = participants.filter(
@@ -25,10 +27,10 @@ export function UnassignedList({
   const drivers = participants.filter((p) => p.has_car);
 
   async function handleBoard(passengerId: string, driverId: string) {
-    await fetch(`/api/activities/${activityId}/ride`, {
+    await fetch(`/api/trips/${activityId}/assignments/${passengerId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passenger_id: passengerId, driver_id: driverId }),
+      body: JSON.stringify({ driver_member_id: driverId }),
     });
     onUpdated();
   }
@@ -39,7 +41,7 @@ export function UnassignedList({
     <div className="space-y-3">
       <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1">
         <Users className="size-4" />
-        未分配乘客 ({unassigned.length})
+        待安排成员 ({unassigned.length})
       </h3>
       <Card>
         <CardContent className="py-3 space-y-2">
@@ -64,7 +66,7 @@ export function UnassignedList({
                     </span>
                   )}
                 </span>
-                {drivers.length > 0 && (
+                {drivers.length > 0 && canManageAssignments && (
                   <div className="flex gap-1 flex-wrap justify-end">
                     {drivers.map((d) => {
                       const pCount = participants.filter(

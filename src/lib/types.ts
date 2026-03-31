@@ -1,4 +1,4 @@
-export interface Activity {
+export interface Trip {
   id: string;
   name: string;
   dest_name: string;
@@ -15,7 +15,7 @@ export interface Activity {
   created_at: number;
 }
 
-export interface Participant {
+export interface TripMember {
   id: string;
   activity_id: string;
   user_id: string;
@@ -28,3 +28,6 @@ export interface Participant {
   assigned_driver: string | null;
   created_at: number;
 }
+
+export type Activity = Trip;
+export type Participant = TripMember;

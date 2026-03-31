@@ -19,14 +19,12 @@ const DEST_DOT = "#f5222d";
 interface RouteMapProps {
   activity: Activity;
   participants: Participant[];
-  currentUserId?: string;
   myParticipant: Participant;
 }
 
 export function RouteMap({
   activity,
   participants,
-  currentUserId,
   myParticipant,
 }: RouteMapProps) {
   const { loaded, AMap } = useAMap();
@@ -54,32 +52,6 @@ export function RouteMap({
     }
     return { kind: "passenger_waiting" as const, me: myParticipant };
   }, [myParticipant, participants]);
-
-  /** 仅当地图所需数据变化时变化；避免父组件轮询引用变化导致无意义重绘与闪屏 */
-  const routeDataSig = JSON.stringify({
-    aid: activity.id,
-    dest: [activity.dest_lat, activity.dest_lng, activity.dest_name],
-    parts: [...participants]
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map((p) => ({
-        id: p.id,
-        la: p.location_lat,
-        ln: p.location_lng,
-        ad: p.assigned_driver,
-        n: p.nickname,
-      })),
-    my: {
-      id: myParticipant.id,
-      la: myParticipant.location_lat,
-      ln: myParticipant.location_lng,
-      hc: myParticipant.has_car,
-      ad: myParticipant.assigned_driver,
-      n: myParticipant.nickname,
-    },
-    uid: currentUserId,
-    vk: view.kind,
-    ...(view.kind === "passenger_ride" ? { dr: view.driver.id } : {}),
-  });
 
   const clearOverlays = useCallback(() => {
     for (const o of overlaysRef.current) {
@@ -221,12 +193,17 @@ export function RouteMap({
 
     fitMapIfNeeded(map, 500);
   }, [
-    routeDataSig,
     AMap,
+    activity.dest_lat,
+    activity.dest_lng,
     clearOverlays,
     addDestDot,
     addPersonDot,
     fitMapIfNeeded,
+    participants,
+    view.driver,
+    view.kind,
+    view.me,
   ]);
 
   useEffect(() => {
@@ -252,7 +229,7 @@ export function RouteMap({
     }
 
     drawRoutes();
-  }, [loaded, AMap, drawRoutes]);
+  }, [loaded, AMap, activity.id, activity.dest_lat, activity.dest_lng, drawRoutes]);
 
   const hint = useMemo(() => {
     if (view.kind === "passenger_waiting") {

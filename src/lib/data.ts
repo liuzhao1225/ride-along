@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { createAdminClient } from "./supabase/admin";
-import type { Activity, Participant } from "./types";
+import type { Trip, TripMember } from "./types";
 
 const ACT = "ride_along_activities" as const;
 const PART = "ride_along_participants" as const;
@@ -16,7 +16,7 @@ function tsOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function mapActivity(row: Record<string, unknown>): Activity {
+function mapActivity(row: Record<string, unknown>): Trip {
   return {
     id: row.id as string,
     name: row.name as string,
@@ -32,11 +32,11 @@ function mapActivity(row: Record<string, unknown>): Activity {
   };
 }
 
-export function isActivityDisbanded(activity: Activity): boolean {
+export function isActivityDisbanded(activity: Trip): boolean {
   return activity.disbanded_at != null;
 }
 
-function mapParticipant(row: Record<string, unknown>): Participant {
+function mapParticipant(row: Record<string, unknown>): TripMember {
   return {
     id: row.id as string,
     activity_id: row.activity_id as string,
@@ -62,7 +62,7 @@ export async function createActivity(
   destLng: number,
   eventAtIso?: string | null,
   creatorDisplayName?: string | null
-): Promise<Activity> {
+): Promise<Trip> {
   const supabase = createAdminClient();
   const id = nanoid(10);
   const { data, error } = await supabase
@@ -111,7 +111,7 @@ export async function disbandActivity(
 /** 当前用户作为参与者出现过的活动（按创建时间倒序） */
 export async function listActivitiesForUser(
   userId: string
-): Promise<Activity[]> {
+): Promise<Trip[]> {
   const supabase = createAdminClient();
   const { data: parts, error: e1 } = await supabase
     .from(PART)
@@ -132,7 +132,7 @@ export async function listActivitiesForUser(
   return (rows ?? []).map((r) => mapActivity(r as Record<string, unknown>));
 }
 
-export async function getActivity(id: string): Promise<Activity | null> {
+export async function getActivity(id: string): Promise<Trip | null> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from(ACT)
@@ -147,7 +147,7 @@ export async function getActivity(id: string): Promise<Activity | null> {
 
 export async function getParticipants(
   activityId: string
-): Promise<Participant[]> {
+): Promise<TripMember[]> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from(PART)
@@ -165,7 +165,7 @@ export async function joinActivity(
   activityId: string,
   userId: string,
   nickname: string
-): Promise<Participant> {
+): Promise<TripMember> {
   const supabase = createAdminClient();
 
   const activity = await getActivity(activityId);
@@ -216,7 +216,7 @@ export async function joinActivity(
 
 export async function getParticipantById(
   participantId: string
-): Promise<Participant | null> {
+): Promise<TripMember | null> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from(PART)
@@ -232,14 +232,14 @@ export async function getParticipantById(
 export async function updateParticipant(
   participantId: string,
   updates: {
-    location_name?: string;
-    location_lat?: number;
-    location_lng?: number;
+    location_name?: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
     has_car?: number;
     seats?: number;
     nickname?: string;
   }
-): Promise<Participant | null> {
+): Promise<TripMember | null> {
   const supabase = createAdminClient();
   const payload: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(updates)) {
@@ -302,5 +302,31 @@ export async function clearAssignments(activityId: string): Promise<void> {
     .eq("activity_id", activityId)
     .eq("has_car", 0);
 
+  if (error) throw error;
+}
+
+export async function leaveActivity(
+  activityId: string,
+  userId: string
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { data: participant, error: fetchError } = await supabase
+    .from(PART)
+    .select()
+    .eq("activity_id", activityId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (fetchError) throw fetchError;
+  if (!participant) return;
+
+  const participantId = (participant as { id: string }).id;
+
+  await supabase
+    .from(PART)
+    .update({ assigned_driver: null })
+    .eq("assigned_driver", participantId);
+
+  const { error } = await supabase.from(PART).delete().eq("id", participantId);
   if (error) throw error;
 }

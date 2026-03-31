@@ -14,12 +14,14 @@ export function DriverList({
   currentUserId,
   activityId,
   onUpdated,
+  canManageAssignments = false,
   interactionsDisabled = false,
 }: {
   participants: Participant[];
   currentUserId?: string;
   activityId: string;
   onUpdated: () => void;
+  canManageAssignments?: boolean;
   /** 活动已解散等场景下禁止上下车操作 */
   interactionsDisabled?: boolean;
 }) {
@@ -37,10 +39,10 @@ export function DriverList({
   }
 
   async function handleLeave(passengerId: string) {
-    await fetch(`/api/activities/${activityId}/ride`, {
+    await fetch(`/api/trips/${activityId}/assignments/${passengerId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ passenger_id: passengerId, driver_id: null }),
+      body: JSON.stringify({ driver_member_id: null }),
     });
     onUpdated();
   }
@@ -49,7 +51,7 @@ export function DriverList({
     <div className="space-y-3">
       <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-1">
         <Car className="size-4" />
-        车辆列表
+        车辆编组
       </h3>
       {drivers.map((driver) => {
         const passengers = participants.filter(
@@ -100,8 +102,7 @@ export function DriverList({
                           </Badge>
                         )}
                       </span>
-                      {(p.user_id === currentUserId ||
-                        driver.user_id === currentUserId) && (
+                      {canManageAssignments && (
                         <Button
                           variant="ghost"
                           size="xs"

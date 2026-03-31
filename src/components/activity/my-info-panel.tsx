@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/card";
 import { LocationPicker, type Location } from "@/components/location-picker";
 import { RouteMap } from "@/components/route-map";
-import { useActivityData } from "@/contexts/activity-data-context";
 import { Car, UserRound, Minus, Plus } from "lucide-react";
 import type { Activity, Participant } from "@/lib/types";
 
@@ -24,7 +23,9 @@ export function MyInfoPanel({
   destCenter,
   activity,
   participants,
-  currentUserId,
+  isOrganizer = false,
+  disbanding = false,
+  onCloseTrip,
 }: {
   participant: Participant;
   activityId: string;
@@ -32,10 +33,10 @@ export function MyInfoPanel({
   destCenter: [number, number];
   activity: Activity;
   participants: Participant[];
-  currentUserId: string;
+  isOrganizer?: boolean;
+  disbanding?: boolean;
+  onCloseTrip?: (() => Promise<void> | void);
 }) {
-  const { isCreator, disbanding, disbandActivity } = useActivityData();
-
   const [location, setLocation] = useState<Location | null>(
     participant.location_lat != null
       ? {
@@ -88,14 +89,11 @@ export function MyInfoPanel({
         body.location_lat = null;
         body.location_lng = null;
       }
-      const res = await fetch(
-        `/api/activities/${activityId}/participants/${participant.id}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      );
+      const res = await fetch(`/api/trips/${activityId}/my-profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (!res.ok) {
         setError("保存失败");
         return;
@@ -145,7 +143,7 @@ export function MyInfoPanel({
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <UserRound className="size-4" />
-          我的信息
+          我的资料
           <span className="text-sm font-normal text-muted-foreground">
             ({participant.nickname})
           </span>
@@ -154,7 +152,7 @@ export function MyInfoPanel({
       <CardContent className="space-y-4">
         {disbanded && (
           <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
-            活动已解散，无法修改个人信息。
+            行程已关闭，无法修改个人资料。
           </p>
         )}
 
@@ -178,7 +176,6 @@ export function MyInfoPanel({
             <RouteMap
               activity={activity}
               participants={participants}
-              currentUserId={currentUserId}
               myParticipant={previewParticipant}
             />
           </div>
@@ -234,7 +231,7 @@ export function MyInfoPanel({
           {saving ? "保存中…" : "保存"}
         </Button>
 
-        {isCreator && !disbanded && (
+        {isOrganizer && !disbanded && onCloseTrip && (
           <>
             <Separator />
             <Button
@@ -243,9 +240,9 @@ export function MyInfoPanel({
               className="w-full"
               size="sm"
               disabled={disbanding}
-              onClick={() => void disbandActivity()}
+              onClick={() => void onCloseTrip()}
             >
-              {disbanding ? "解散中…" : "解散活动"}
+              {disbanding ? "关闭中…" : "关闭行程"}
             </Button>
           </>
         )}
