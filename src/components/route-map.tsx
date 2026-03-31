@@ -1,35 +1,85 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- AMap SDK */
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useMemo } from "react";
+import { Maximize2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { useAMap } from "./amap-loader";
-import type { Participant, Activity } from "@/lib/db";
+import type { Participant, Activity } from "@/lib/types";
+import {
+  MAP_DOT_GREEN,
+  MAP_DOT_RED,
+  createPersonDotElement,
+  mapDotMarkerOffsetPx,
+} from "@/lib/amap-dot-style";
 
-const DRIVER_COLORS = [
-  "#1677ff",
-  "#52c41a",
-  "#fa8c16",
-  "#eb2f96",
-  "#722ed1",
-  "#13c2c2",
-  "#f5222d",
-  "#2f54eb",
-];
+const ROUTE_LINE = "#1677ff";
+const DEST_DOT = "#f5222d";
 
 interface RouteMapProps {
   activity: Activity;
   participants: Participant[];
   currentUserId?: string;
+  myParticipant: Participant;
 }
 
 export function RouteMap({
   activity,
   participants,
   currentUserId,
+  myParticipant,
 }: RouteMapProps) {
-  const { loaded, AMap, loadError } = useAMap();
+  const { loaded, AMap } = useAMap();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
+  /** 用户手动缩放/拖动后不再自动 setFitView，避免轮询重绘把视野拉回全局 */
+  const userAdjustedViewRef = useRef(false);
+  /** 程序化 setFitView 也会触发 zoom/move 事件，用此标记忽略 */
+  const programmaticFitRef = useRef(false);
+  const prevActivityIdRef = useRef<string | null>(null);
+
+  const view = useMemo(() => {
+    if (myParticipant.has_car) {
+      return { kind: "driver" as const, driver: myParticipant };
+    }
+    if (myParticipant.assigned_driver) {
+      const driver = participants.find(
+        (p) => p.id === myParticipant.assigned_driver
+      );
+      if (driver) {
+        return { kind: "passenger_ride" as const, driver };
+      }
+      return { kind: "passenger_ride_missing_driver" as const };
+    }
+    return { kind: "passenger_waiting" as const, me: myParticipant };
+  }, [myParticipant, participants]);
+
+  /** 仅当地图所需数据变化时变化；避免父组件轮询引用变化导致无意义重绘与闪屏 */
+  const routeDataSig = JSON.stringify({
+    aid: activity.id,
+    dest: [activity.dest_lat, activity.dest_lng, activity.dest_name],
+    parts: [...participants]
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((p) => ({
+        id: p.id,
+        la: p.location_lat,
+        ln: p.location_lng,
+        ad: p.assigned_driver,
+        n: p.nickname,
+      })),
+    my: {
+      id: myParticipant.id,
+      la: myParticipant.location_lat,
+      ln: myParticipant.location_lng,
+      hc: myParticipant.has_car,
+      ad: myParticipant.assigned_driver,
+      n: myParticipant.nickname,
+    },
+    uid: currentUserId,
+    vk: view.kind,
+    ...(view.kind === "passenger_ride" ? { dr: view.driver.id } : {}),
+  });
 
   const clearOverlays = useCallback(() => {
     for (const o of overlaysRef.current) {
@@ -40,144 +90,190 @@ export function RouteMap({
     overlaysRef.current = [];
   }, []);
 
+  /** 仅在用户尚未手动调整视野时自动适配全览，避免与 userAdjustedViewRef 冲突 */
+  const fitMapIfNeeded = useCallback((map: any, delayMs: number) => {
+    setTimeout(() => {
+      if (userAdjustedViewRef.current) return;
+      if (mapRef.current !== map) return;
+      if (map && overlaysRef.current.length > 0) {
+        programmaticFitRef.current = true;
+        map.setFitView(overlaysRef.current, false, [40, 40, 40, 40]);
+        window.setTimeout(() => {
+          programmaticFitRef.current = false;
+        }, 700);
+      }
+    }, delayMs);
+  }, []);
+
+  const handleFitViewClick = useCallback(() => {
+    const map = mapRef.current;
+    if (!map || overlaysRef.current.length === 0) return;
+    programmaticFitRef.current = true;
+    map.setFitView(overlaysRef.current, false, [40, 40, 40, 40]);
+    window.setTimeout(() => {
+      programmaticFitRef.current = false;
+    }, 700);
+  }, []);
+
+  const addPersonDot = useCallback(
+    (map: any, lng: number, lat: number, kind: "green" | "red") => {
+      if (!AMap) return;
+      const color = kind === "green" ? MAP_DOT_GREEN : MAP_DOT_RED;
+      const el = createPersonDotElement(color);
+      const [ox, oy] = mapDotMarkerOffsetPx();
+      const marker = new AMap.Marker({
+        position: [lng, lat],
+        map,
+        content: el,
+        offset: new AMap.Pixel(ox, oy),
+      });
+      overlaysRef.current.push(marker);
+    },
+    [AMap]
+  );
+
+  const addDestDot = useCallback(
+    (map: any) => {
+      if (!AMap) return;
+      const el = createPersonDotElement(DEST_DOT);
+      const [ox, oy] = mapDotMarkerOffsetPx();
+      const marker = new AMap.Marker({
+        position: [activity.dest_lng, activity.dest_lat],
+        map,
+        content: el,
+        offset: new AMap.Pixel(ox, oy),
+      });
+      overlaysRef.current.push(marker);
+    },
+    [AMap, activity.dest_lat, activity.dest_lng]
+  );
+
+  // routeDataSig 已编码地图相关数据；不把 activity/participants 引用放进 deps，避免父级轮询导致反复 clear+fit
   const drawRoutes = useCallback(() => {
     if (!AMap || !mapRef.current) return;
     clearOverlays();
     const map = mapRef.current;
 
-    const destMarker = new AMap.Marker({
-      position: [activity.dest_lng, activity.dest_lat],
-      map,
-      label: {
-        content: `<div style="background:#f5222d;color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;white-space:nowrap;">目的地: ${activity.dest_name}</div>`,
-        direction: "top",
-      },
-      icon: new AMap.Icon({
-        size: new AMap.Size(25, 34),
-        image:
-          "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png",
-        imageSize: new AMap.Size(25, 34),
-      }),
-    });
-    overlaysRef.current.push(destMarker);
+    addDestDot(map);
 
-    const drivers = participants.filter((p) => p.has_car);
-    const drivingInstances: any[] = [];
-
-    drivers.forEach((driver, idx) => {
-      if (driver.location_lat == null || driver.location_lng == null) return;
-      const color = DRIVER_COLORS[idx % DRIVER_COLORS.length];
-
-      const driverMarker = new AMap.Marker({
-        position: [driver.location_lng, driver.location_lat],
-        map,
-        label: {
-          content: `<div style="background:${color};color:#fff;padding:2px 6px;border-radius:4px;font-size:12px;white-space:nowrap;">${driver.nickname} (司机)</div>`,
-          direction: "top",
-        },
-      });
-      overlaysRef.current.push(driverMarker);
-
-      const passengers = participants.filter(
-        (p) => p.assigned_driver === driver.id && p.location_lat != null
-      );
-
-      for (const p of passengers) {
-        const pMarker = new AMap.Marker({
-          position: [p.location_lng!, p.location_lat!],
-          map,
-          label: {
-            content: `<div style="background:${color};color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;opacity:0.85;white-space:nowrap;">${p.nickname}</div>`,
-            direction: "top",
-          },
-          icon: new AMap.Icon({
-            size: new AMap.Size(19, 31),
-            image:
-              "https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
-            imageSize: new AMap.Size(19, 31),
-          }),
-        });
-        overlaysRef.current.push(pMarker);
-      }
-
-      const waypoints = passengers
-        .filter((p) => p.location_lng != null)
-        .map((p) => new AMap.LngLat(p.location_lng!, p.location_lat!));
-
-      const driving = new AMap.Driving({
-        map: null,
-        policy: 0,
-      });
-      drivingInstances.push(driving);
-
-      driving.search(
-        new AMap.LngLat(driver.location_lng, driver.location_lat),
-        new AMap.LngLat(activity.dest_lng, activity.dest_lat),
-        { waypoints },
-        (status: string, result: any) => {
-          if (status === "complete" && result.routes?.length > 0) {
-            const route = result.routes[0];
-            const path: any[] = [];
-            for (const step of route.steps) {
-              path.push(...step.path);
-            }
-            const polyline = new AMap.Polyline({
-              path,
-              strokeColor: color,
-              strokeWeight: 5,
-              strokeOpacity: 0.8,
-              map,
-            });
-            overlaysRef.current.push(polyline);
-          }
-        }
-      );
-    });
-
-    // Unassigned passengers
-    const unassigned = participants.filter(
-      (p) =>
-        !p.has_car &&
-        !p.assigned_driver &&
-        p.location_lat != null
-    );
-    for (const p of unassigned) {
-      const isMe = p.user_id === currentUserId;
-      const pMarker = new AMap.Marker({
-        position: [p.location_lng!, p.location_lat!],
-        map,
-        label: {
-          content: `<div style="background:#999;color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;white-space:nowrap;">${p.nickname}${isMe ? " (我)" : ""}</div>`,
-          direction: "top",
-        },
-        icon: new AMap.Icon({
-          size: new AMap.Size(19, 31),
-          image:
-            "https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
-          imageSize: new AMap.Size(19, 31),
-        }),
-      });
-      overlaysRef.current.push(pMarker);
+    if (view.kind === "passenger_ride_missing_driver") {
+      fitMapIfNeeded(map, 300);
+      return;
     }
 
-    // Fit view
-    setTimeout(() => {
-      if (map && overlaysRef.current.length > 0) {
-        map.setFitView(overlaysRef.current, false, [40, 40, 40, 40]);
+    if (view.kind === "passenger_waiting") {
+      const me = view.me;
+      if (me.location_lat != null && me.location_lng != null) {
+        addPersonDot(map, me.location_lng, me.location_lat, "red");
       }
-    }, 500);
-  }, [AMap, activity, participants, currentUserId, clearOverlays]);
+      fitMapIfNeeded(map, 300);
+      return;
+    }
+
+    const driver = view.driver;
+
+    if (driver.location_lat == null || driver.location_lng == null) {
+      fitMapIfNeeded(map, 300);
+      return;
+    }
+
+    addPersonDot(map, driver.location_lng, driver.location_lat, "green");
+
+    const passengers = participants.filter(
+      (p) => p.assigned_driver === driver.id && p.location_lat != null
+    );
+
+    for (const p of passengers) {
+      addPersonDot(map, p.location_lng!, p.location_lat!, "green");
+    }
+
+    const waypoints = passengers
+      .filter((p) => p.location_lng != null)
+      .map((p) => new AMap.LngLat(p.location_lng!, p.location_lat!));
+
+    const driving = new AMap.Driving({
+      map: null,
+      policy: 0,
+    });
+
+    driving.search(
+      new AMap.LngLat(driver.location_lng, driver.location_lat),
+      new AMap.LngLat(activity.dest_lng, activity.dest_lat),
+      { waypoints },
+      (status: string, result: any) => {
+        if (status === "complete" && result.routes?.length > 0) {
+          const route = result.routes[0];
+          const path: any[] = [];
+          for (const step of route.steps) {
+            path.push(...step.path);
+          }
+          const polyline = new AMap.Polyline({
+            path,
+            strokeColor: ROUTE_LINE,
+            strokeWeight: 5,
+            strokeOpacity: 0.8,
+            map,
+          });
+          overlaysRef.current.push(polyline);
+        }
+      }
+    );
+
+    fitMapIfNeeded(map, 500);
+  }, [
+    routeDataSig,
+    AMap,
+    clearOverlays,
+    addDestDot,
+    addPersonDot,
+    fitMapIfNeeded,
+  ]);
 
   useEffect(() => {
     if (!loaded || !AMap || !containerRef.current) return;
+
+    if (prevActivityIdRef.current !== activity.id) {
+      prevActivityIdRef.current = activity.id;
+      userAdjustedViewRef.current = false;
+    }
+
     if (!mapRef.current) {
       mapRef.current = new AMap.Map(containerRef.current, {
         zoom: 12,
         center: [activity.dest_lng, activity.dest_lat],
       });
+      const map = mapRef.current;
+      const markUserAdjusted = () => {
+        if (programmaticFitRef.current) return;
+        userAdjustedViewRef.current = true;
+      };
+      map.on("zoomend", markUserAdjusted);
+      map.on("moveend", markUserAdjusted);
     }
+
     drawRoutes();
-  }, [loaded, AMap, drawRoutes, activity.dest_lng, activity.dest_lat]);
+  }, [loaded, AMap, drawRoutes]);
+
+  const hint = useMemo(() => {
+    if (view.kind === "passenger_waiting") {
+      return myParticipant.location_lat == null
+        ? "你尚未设置出发地；上车前仅显示目的地。设置出发地后将显示红点。"
+        : "尚未分配车辆：不显示驾车路线，红点为你的出发位置。";
+    }
+    if (view.kind === "driver") {
+      return myParticipant.location_lat == null ||
+        myParticipant.location_lng == null
+        ? "请先在「我的信息」中设置出发地，即可查看驾车路线。"
+        : null;
+    }
+    if (view.kind === "passenger_ride") {
+      return view.driver.location_lat == null ||
+        view.driver.location_lng == null
+        ? "司机尚未设置出发地，暂时无法显示驾车路线。"
+        : null;
+    }
+    return null;
+  }, [view, myParticipant]);
 
   if (!loaded) {
     return (
@@ -187,19 +283,27 @@ export function RouteMap({
     );
   }
 
-  if (!AMap) {
-    return (
-      <div className="w-full h-64 rounded-lg border border-dashed bg-muted/50 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-muted-foreground">
-        <span>地图不可用</span>
-        <span className="text-xs">{loadError ?? "请检查 NEXT_PUBLIC_AMAP_KEY 与网络"}</span>
-      </div>
-    );
-  }
-
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-64 sm:h-80 rounded-lg border"
-    />
+    <div className="space-y-2">
+      {hint ? (
+        <p className="text-sm text-muted-foreground">{hint}</p>
+      ) : null}
+      <div className="relative w-full">
+        <div
+          ref={containerRef}
+          className="w-full h-64 sm:h-80 rounded-lg border"
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="absolute right-2 top-2 z-10 h-8 gap-1 border bg-background/95 shadow-sm backdrop-blur-sm"
+          onClick={handleFitViewClick}
+        >
+          <Maximize2 className="size-3.5" />
+          全览
+        </Button>
+      </div>
+    </div>
   );
 }

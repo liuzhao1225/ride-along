@@ -1,4 +1,4 @@
-import type { Participant } from "./db";
+import type { Participant } from "./types";
 
 const R = 6371;
 

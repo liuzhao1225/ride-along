@@ -1,4 +1,4 @@
-import { getActivity, getParticipants } from "@/lib/db";
+import { getActivity, getParticipants } from "@/lib/data";
 import { NextRequest } from "next/server";
 
 export async function GET(
@@ -6,10 +6,15 @@ export async function GET(
   ctx: RouteContext<"/api/activities/[id]">
 ) {
   const { id } = await ctx.params;
-  const activity = getActivity(id);
-  if (!activity) {
-    return Response.json({ error: "活动不存在" }, { status: 404 });
+  try {
+    const activity = await getActivity(id);
+    if (!activity) {
+      return Response.json({ error: "活动不存在" }, { status: 404 });
+    }
+    const participants = await getParticipants(id);
+    return Response.json({ activity, participants });
+  } catch (e) {
+    console.error(e);
+    return Response.json({ error: "加载失败" }, { status: 500 });
   }
-  const participants = getParticipants(id);
-  return Response.json({ activity, participants });
 }

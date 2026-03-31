@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- AMap SDK */
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -5,6 +6,13 @@ import { useAMap } from "./amap-loader";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MapPin, Search } from "lucide-react";
+import {
+  MAP_DOT_GREEN,
+  MAP_DOT_RED,
+  MAP_DOT_NEUTRAL,
+  createPersonDotElement,
+  mapDotMarkerOffsetPx,
+} from "@/lib/amap-dot-style";
 
 export interface Location {
   name: string;
@@ -17,6 +25,10 @@ interface LocationPickerProps {
   onChange: (loc: Location) => void;
   placeholder?: string;
   center?: [number, number];
+  /** 人员点颜色：有车/已上车绿，未上车红，其它灰 */
+  personMarkerTint?: "green" | "red" | "neutral";
+  /** 只读（如活动已解散） */
+  disabled?: boolean;
 }
 
 export function LocationPicker({
@@ -24,8 +36,10 @@ export function LocationPicker({
   onChange,
   placeholder = "搜索地点...",
   center,
+  personMarkerTint = "neutral",
+  disabled = false,
 }: LocationPickerProps) {
-  const { loaded, AMap, loadError } = useAMap();
+  const { loaded, AMap } = useAMap();
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -33,6 +47,32 @@ export function LocationPicker({
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [showMap, setShowMap] = useState(false);
   const autoCompleteRef = useRef<any>(null);
+
+  const tintColor =
+    personMarkerTint === "green"
+      ? MAP_DOT_GREEN
+      : personMarkerTint === "red"
+        ? MAP_DOT_RED
+        : MAP_DOT_NEUTRAL;
+
+  const setMarkerAt = useCallback(
+    (lng: number, lat: number, map: any) => {
+      if (!AMap) return;
+      const el = createPersonDotElement(tintColor);
+      const [ox, oy] = mapDotMarkerOffsetPx();
+      if (markerRef.current) {
+        map.remove(markerRef.current);
+        markerRef.current = null;
+      }
+      markerRef.current = new AMap.Marker({
+        position: [lng, lat],
+        map,
+        content: el,
+        offset: new AMap.Pixel(ox, oy),
+      });
+    },
+    [AMap, tintColor]
+  );
 
   const initMap = useCallback(() => {
     if (!AMap || !mapRef.current || mapInstance.current) return;
@@ -46,22 +86,13 @@ export function LocationPicker({
     mapInstance.current = map;
 
     if (value) {
-      markerRef.current = new AMap.Marker({
-        position: [value.lng, value.lat],
-        map,
-      });
+      setMarkerAt(value.lng, value.lat, map);
     }
 
     map.on("click", (e: any) => {
+      if (disabled) return;
       const lnglat = e.lnglat;
-      if (markerRef.current) {
-        markerRef.current.setPosition(lnglat);
-      } else {
-        markerRef.current = new AMap.Marker({
-          position: lnglat,
-          map,
-        });
-      }
+      setMarkerAt(lnglat.getLng(), lnglat.getLat(), map);
       const geocoder = new AMap.Geocoder();
       geocoder.getAddress(lnglat, (status: string, result: any) => {
         const name =
@@ -71,13 +102,39 @@ export function LocationPicker({
         onChange({ name, lat: lnglat.getLat(), lng: lnglat.getLng() });
       });
     });
-  }, [AMap, center, value, onChange]);
+  }, [AMap, center, value, onChange, setMarkerAt, disabled]);
 
   useEffect(() => {
     if (loaded && showMap) {
       setTimeout(initMap, 100);
     }
   }, [loaded, showMap, initMap]);
+
+  useEffect(() => {
+    if (!showMap && mapInstance.current) {
+      try {
+        mapInstance.current.destroy();
+      } catch {
+        /* ignore */
+      }
+      mapInstance.current = null;
+      markerRef.current = null;
+    }
+  }, [showMap]);
+
+  useEffect(() => {
+    if (!loaded || !showMap || !mapInstance.current || !value || !AMap) return;
+    setMarkerAt(value.lng, value.lat, mapInstance.current);
+  }, [
+    loaded,
+    showMap,
+    value?.lat,
+    value?.lng,
+    tintColor,
+    AMap,
+    setMarkerAt,
+    value,
+  ]);
 
   useEffect(() => {
     if (!AMap) return;
@@ -115,32 +172,18 @@ export function LocationPicker({
       if (mapInstance.current) {
         mapInstance.current.setCenter([loc.lng, loc.lat]);
         mapInstance.current.setZoom(15);
-        if (markerRef.current) {
-          markerRef.current.setPosition([loc.lng, loc.lat]);
-        } else if (AMap) {
-          markerRef.current = new AMap.Marker({
-            position: [loc.lng, loc.lat],
-            map: mapInstance.current,
-          });
-        }
+        setMarkerAt(loc.lng, loc.lat, mapInstance.current);
       }
     },
-    [onChange, AMap]
+    [onChange, setMarkerAt]
   );
-
-  if (loaded && !AMap) {
-    return (
-      <div className="rounded-lg border border-dashed bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-        {loadError ?? "地图未就绪，无法搜索地点。请配置 NEXT_PUBLIC_AMAP_KEY 后重新部署。"}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-2">
       <div className="flex gap-2">
         <div className="relative flex-1">
           <Input
+            disabled={disabled}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -153,19 +196,22 @@ export function LocationPicker({
             }}
             placeholder={placeholder}
             className="pr-8"
-            disabled={!loaded}
           />
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={disabled}
             onClick={handleSearch}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            className="absolute right-1 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             <Search className="size-4" />
-          </button>
+          </Button>
         </div>
         <Button
           variant="outline"
           size="icon"
+          disabled={disabled}
           onClick={() => setShowMap(!showMap)}
           type="button"
         >
@@ -184,9 +230,10 @@ export function LocationPicker({
         <ul className="border rounded-lg bg-popover shadow-md divide-y max-h-48 overflow-auto">
           {suggestions.map((tip, i) => (
             <li key={i}>
-              <button
+              <Button
                 type="button"
-                className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors"
+                variant="ghost"
+                className="h-auto w-full justify-start rounded-none px-3 py-2 text-left text-sm font-normal"
                 onClick={() => selectSuggestion(tip)}
               >
                 <span className="font-medium">{tip.name}</span>
@@ -195,7 +242,7 @@ export function LocationPicker({
                     {tip.district}
                   </span>
                 )}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
