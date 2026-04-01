@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarRange, MapPin, PencilLine } from "lucide-react";
+import { PencilLine } from "lucide-react";
 import { toast } from "sonner";
-import { LocationPicker, type Location } from "@/components/location-picker";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,14 +10,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  activitySecondsToDateInput,
-  eventDateInputToIso,
-} from "@/lib/activity-date";
 import type { Trip } from "@/lib/types";
+import { getFetchJsonErrorMessage } from "../client/fetch-json";
+import { tripClient } from "../client/trip-client";
+import {
+  buildTripFormValueFromTrip,
+  getTripFormError,
+  serializeTripFormValue,
+  type TripFormValue,
+} from "../model";
 import type { TripDashboardData } from "../types";
+import { TripFormFields } from "./trip-form-fields";
 
 export function TripSettingsPanel({
   trip,
@@ -31,67 +33,38 @@ export function TripSettingsPanel({
   onSaved?: () => void;
   embedded?: boolean;
 }) {
-  const [title, setTitle] = useState(trip.name);
-  const [tripDate, setTripDate] = useState(activitySecondsToDateInput(trip.event_at));
-  const [destination, setDestination] = useState<Location | null>({
-    name: trip.dest_name,
-    lat: trip.dest_lat,
-    lng: trip.dest_lng,
-  });
+  const [formValue, setFormValue] = useState<TripFormValue>(
+    buildTripFormValueFromTrip(trip)
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setTitle(trip.name);
-    setTripDate(activitySecondsToDateInput(trip.event_at));
-    setDestination({
-      name: trip.dest_name,
-      lat: trip.dest_lat,
-      lng: trip.dest_lng,
-    });
+    setFormValue(buildTripFormValueFromTrip(trip));
   }, [trip]);
 
   const closed = trip.disbanded_at != null;
 
   async function handleSave() {
-    if (!title.trim()) {
-      setError("请填写行程名称");
-      return;
-    }
-    if (!destination) {
-      setError("请填写目的地");
-      return;
-    }
-    if (!eventDateInputToIso(tripDate)) {
-      setError("请输入有效日期");
+    const formError = getTripFormError(formValue);
+    if (formError) {
+      setError(formError);
       return;
     }
 
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/trips/${trip.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          destination_name: destination.name,
-          destination_lat: destination.lat,
-          destination_lng: destination.lng,
-          trip_date: tripDate,
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as
-        | TripDashboardData
-        | { error?: string };
-      if (!res.ok) {
-        setError((json as { error?: string }).error ?? "保存失败");
-        return;
-      }
+      const json = await tripClient.updateTrip(
+        trip.id,
+        serializeTripFormValue(formValue)
+      );
 
       toast.success("行程信息已更新");
       onUpdated(json as TripDashboardData);
       onSaved?.();
+    } catch (nextError) {
+      setError(getFetchJsonErrorMessage(nextError, "保存失败"));
     } finally {
       setSaving(false);
     }
@@ -114,49 +87,13 @@ export function TripSettingsPanel({
           </p>
         ) : null}
 
-        <div className="space-y-2">
-          <Label htmlFor="trip-settings-title">行程名称</Label>
-          <Input
-            id="trip-settings-title"
-            value={title}
-            disabled={closed}
-            onChange={(event) => setTitle(event.target.value)}
-            placeholder="例如：周六早上去莫干山"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="trip-settings-date">出行日期</Label>
-          <div className="relative">
-            <CalendarRange className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="trip-settings-date"
-              type="date"
-              className="pl-9"
-              value={tripDate}
-              disabled={closed}
-              onChange={(event) => setTripDate(event.target.value)}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label>目的地</Label>
-          <LocationPicker
-            value={destination}
-            onChange={setDestination}
-            placeholder="搜索目的地..."
-            center={[trip.dest_lng, trip.dest_lat]}
-            disabled={closed}
-          />
-        </div>
-
-        {destination ? (
-          <p className="text-xs text-muted-foreground">
-            <MapPin className="mr-1 inline size-3" />
-            当前目的地：{destination.name}
-          </p>
-        ) : null}
+        <TripFormFields
+          value={formValue}
+          disabled={closed}
+          locationCenter={[trip.dest_lng, trip.dest_lat]}
+          idPrefix="trip-settings"
+          onChange={setFormValue}
+        />
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

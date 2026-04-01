@@ -16,6 +16,8 @@ import { LocationPicker, type Location } from "@/components/location-picker";
 import { RouteMap } from "@/components/route-map";
 import { Car, UserRound, Minus, Plus } from "lucide-react";
 import type { Activity, Participant } from "@/lib/types";
+import { getFetchJsonErrorMessage } from "@/features/trip/client/fetch-json";
+import { tripClient } from "@/features/trip/client/trip-client";
 
 export function MyInfoPanel({
   participant,
@@ -96,36 +98,17 @@ export function MyInfoPanel({
         body.location_lat = null;
         body.location_lng = null;
       }
-      const res = await fetch(`/api/trips/${activityId}/my-profile`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        setError(json.error ?? "保存失败");
-        return;
-      }
 
+      await tripClient.saveMyProfileAndRefreshAssignments(
+        activityId,
+        body,
+        false
+      );
       toast.success("资料已保存");
-
-      const autoAssignRes = await fetch(`/api/trips/${activityId}/auto-assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unlock_self: false }),
-      });
-      const autoAssignJson = (await autoAssignRes
-        .json()
-        .catch(() => ({}))) as { error?: string };
-      if (!autoAssignRes.ok) {
-        setError(autoAssignJson.error ?? "自动编组失败");
-        toast.error("资料已保存，但自动编组失败");
-        onUpdated();
-        return;
-      }
-
       toast.success("自动编组已刷新");
       onUpdated();
+    } catch (nextError) {
+      setError(getFetchJsonErrorMessage(nextError, "保存失败"));
     } finally {
       setSaving(false);
     }

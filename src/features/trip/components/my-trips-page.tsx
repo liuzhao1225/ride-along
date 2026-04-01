@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Calendar, ChevronRight, LogOut, MapPin, Route } from "lucide-react";
+import { Calendar, ChevronRight, MapPin, Route } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,21 +17,27 @@ import { PasswordAuthDialog } from "@/components/password-auth-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import type { Trip } from "@/lib/types";
 import { formatActivityDateDisplay } from "@/lib/activity-date";
+import { getFetchJsonErrorMessage } from "../client/fetch-json";
+import { tripClient } from "../client/trip-client";
+import { useAuthDialogAction } from "../hooks/use-auth-dialog-action";
+import { LogoutButton } from "./logout-button";
+import { PageHeader } from "./page-header";
 
 export function MyTripsPage() {
   const router = useRouter();
   const { user, loading, supabase } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
+  const authDialog = useAuthDialogAction();
+  const { openDialog, onOpenChange, onAuthSuccess } = authDialog;
   const [trips, setTrips] = useState<Trip[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
-      setShowAuth(true);
+      openDialog();
       setListLoading(false);
     }
-  }, [loading, user]);
+  }, [loading, openDialog, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -39,20 +45,15 @@ export function MyTripsPage() {
     (async () => {
       setListLoading(true);
       try {
-        const res = await fetch("/api/trips/mine");
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (!cancelled) {
-            setError((json as { error?: string }).error ?? "加载失败");
-          }
-          return;
-        }
+        const json = await tripClient.listMine();
         if (!cancelled) {
-          setTrips((json as { trips?: Trip[] }).trips ?? []);
+          setTrips(json.trips ?? []);
           setError(null);
         }
-      } catch {
-        if (!cancelled) setError("网络错误");
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(getFetchJsonErrorMessage(nextError, "加载失败"));
+        }
       } finally {
         if (!cancelled) setListLoading(false);
       }
@@ -74,28 +75,20 @@ export function MyTripsPage() {
   if (!user) {
     return (
       <div className="flex flex-1 flex-col bg-muted/20">
-        <header className="border-b bg-background/90 backdrop-blur">
-          <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
-            <Button asChild variant="ghost" size="icon-sm">
-              <Link href="/">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
-            <div>
-              <div className="font-semibold">我的行程</div>
-              <div className="text-xs text-muted-foreground">登录后查看你已加入的拼车行程</div>
-            </div>
-          </div>
-        </header>
+        <PageHeader
+          backHref="/"
+          title="我的行程"
+          subtitle="登录后查看你已加入的拼车行程"
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
           <p className="text-sm text-muted-foreground">先登录，再查看你正在参与的行程。</p>
-          <Button onClick={() => setShowAuth(true)}>登录</Button>
+          <Button onClick={() => authDialog.openDialog()}>登录</Button>
         </div>
         <PasswordAuthDialog
-          open={showAuth}
-          onOpenChange={setShowAuth}
+          open={authDialog.open}
+          onOpenChange={onOpenChange}
           supabase={supabase}
-          onAuthSuccess={() => setShowAuth(false)}
+          onAuthSuccess={onAuthSuccess}
         />
       </div>
     );
@@ -103,25 +96,12 @@ export function MyTripsPage() {
 
   return (
     <div className="flex flex-1 flex-col bg-muted/20">
-      <header className="border-b bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button asChild variant="ghost" size="icon-sm">
-              <Link href="/">
-                <ArrowLeft className="size-4" />
-              </Link>
-            </Button>
-            <div className="min-w-0">
-              <div className="truncate font-semibold">我的行程</div>
-              <div className="text-xs text-muted-foreground">你已经加入的拼车单</div>
-            </div>
-          </div>
-          <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
-            <LogOut className="size-4" />
-            退出
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        backHref="/"
+        title="我的行程"
+        subtitle="你已经加入的拼车单"
+        actions={<LogoutButton supabase={supabase} />}
+      />
 
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 px-4 py-5 sm:py-6">
         {listLoading ? (

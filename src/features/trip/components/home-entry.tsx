@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Car, KeyRound, LogOut, Route } from "lucide-react";
+import { ArrowRight, Car, KeyRound, Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -14,34 +14,16 @@ import {
 } from "@/components/ui/card";
 import { PasswordAuthDialog } from "@/components/password-auth-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { normalizeInviteCode } from "../model";
+import { useAuthDialogAction } from "../hooks/use-auth-dialog-action";
+import { LogoutButton } from "./logout-button";
+import { PageHeader } from "./page-header";
 
 export function HomeEntry() {
   const router = useRouter();
   const { user, loading, supabase } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
-  const [pendingAction, setPendingAction] = useState<"create" | "join" | "mine" | null>(null);
-
-  function normalizeInviteCode(value: string) {
-    const trimmed = value.trim();
-    const match = trimmed.match(/\/t\/([a-zA-Z0-9_-]+)/);
-    if (match) return match[1];
-    return trimmed;
-  }
-
-  function gotoPendingAction() {
-    if (pendingAction === "create") {
-      router.push("/trips/new");
-    }
-    if (pendingAction === "join") {
-      const code = normalizeInviteCode(inviteCode);
-      if (code) router.push(`/t/${code}`);
-    }
-    if (pendingAction === "mine") {
-      router.push("/trips");
-    }
-    setPendingAction(null);
-  }
+  const authDialog = useAuthDialogAction();
 
   if (loading) {
     return (
@@ -53,32 +35,28 @@ export function HomeEntry() {
 
   return (
     <div className="flex flex-1 flex-col bg-[radial-gradient(circle_at_top,rgba(33,115,70,0.12),transparent_38%),linear-gradient(180deg,#fafcf9_0%,#f2f5f1_100%)]">
-      <header className="border-b border-border/60 bg-background/85 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
-              <Car className="size-5" />
-            </div>
-            <div>
-              <div className="font-semibold">顺路拼车</div>
-              <div className="text-xs text-muted-foreground">
-                临时出行编组工具
-              </div>
-            </div>
+      <PageHeader
+        icon={
+          <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-sm">
+            <Car className="size-5" />
           </div>
-
-          {user ? (
-            <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
-              <LogOut className="size-4" />
-              退出
-            </Button>
+        }
+        title="顺路拼车"
+        subtitle="临时出行编组工具"
+        actions={
+          user ? (
+            <LogoutButton supabase={supabase} />
           ) : (
-            <Button variant="outline" size="sm" onClick={() => setShowAuth(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => authDialog.openDialog()}
+            >
               登录
             </Button>
-          )}
-        </div>
-      </header>
+          )
+        }
+      />
 
       <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col justify-center px-4 py-6 sm:py-10">
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -111,12 +89,9 @@ export function HomeEntry() {
                 <Button
                   className="w-full bg-emerald-600 text-white hover:bg-emerald-600/90"
                   onClick={() => {
-                    if (user) {
+                    authDialog.requireAuth(Boolean(user), () => {
                       router.push("/trips/new");
-                    } else {
-                      setPendingAction("create");
-                      setShowAuth(true);
-                    }
+                    });
                   }}
                 >
                   前往发起
@@ -135,12 +110,9 @@ export function HomeEntry() {
                   variant="outline"
                   className="w-full"
                   onClick={() => {
-                    if (user) {
+                    authDialog.requireAuth(Boolean(user), () => {
                       router.push("/trips");
-                    } else {
-                      setPendingAction("mine");
-                      setShowAuth(true);
-                    }
+                    });
                   }}
                 >
                   查看我的行程
@@ -169,12 +141,9 @@ export function HomeEntry() {
                   className="w-full"
                   disabled={!normalizeInviteCode(inviteCode)}
                   onClick={() => {
-                    if (user) {
+                    authDialog.requireAuth(Boolean(user), () => {
                       router.push(`/t/${normalizeInviteCode(inviteCode)}`);
-                    } else {
-                      setPendingAction("join");
-                      setShowAuth(true);
-                    }
+                    });
                   }}
                 >
                   进入邀请页
@@ -186,16 +155,10 @@ export function HomeEntry() {
       </main>
 
       <PasswordAuthDialog
-        open={showAuth}
-        onOpenChange={(open) => {
-          setShowAuth(open);
-          if (!open) setPendingAction(null);
-        }}
+        open={authDialog.open}
+        onOpenChange={authDialog.onOpenChange}
         supabase={supabase}
-        onAuthSuccess={() => {
-          setShowAuth(false);
-          gotoPendingAction();
-        }}
+        onAuthSuccess={authDialog.onAuthSuccess}
       />
     </div>
   );

@@ -1,140 +1,75 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  Shuffle,
-  LogOut,
-  Copy,
-  Car,
-  Route,
-  ClipboardList,
-  UserRound,
-} from "lucide-react";
 import { toast } from "sonner";
 import { AMapProvider } from "@/components/amap-loader";
-import { DriverList } from "@/components/activity/driver-list";
-import { MyInfoPanel } from "@/components/activity/my-info-panel";
-import { UnassignedList } from "@/components/activity/unassigned-list";
+import { PasswordAuthDialog } from "@/components/password-auth-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type { TripDashboardData } from "../types";
-import { getMyRide, isTripProfileComplete } from "../model";
+import { getFetchJsonErrorMessage } from "../client/fetch-json";
+import { tripClient } from "../client/trip-client";
+import { useAuthDialogAction } from "../hooks/use-auth-dialog-action";
+import { useTripDashboardData } from "../hooks/use-trip-dashboard-data";
+import { buildTripInviteText, getMyRide } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
-import { formatActivityDateDisplay } from "@/lib/activity-date";
+import { AssignmentSection } from "./dashboard/assignment-section";
+import { MyProfileSection } from "./dashboard/my-profile-section";
+import { MyRideSection } from "./dashboard/my-ride-section";
+import { TripDashboardLayout } from "./dashboard/trip-dashboard-layout";
+import { TripPageHeader } from "./dashboard/trip-page-header";
 
 function DashboardInner({ tripId }: { tripId: string }) {
   const router = useRouter();
   const { user, loading: authLoading, supabase } = useAuth();
-  const [data, setData] = useState<TripDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const authDialog = useAuthDialogAction();
+  const { data, loading, error, refresh, handleDataUpdated, setData } =
+    useTripDashboardData(tripId);
   const [pendingAssign, setPendingAssign] = useState(false);
   const [pendingLeave, setPendingLeave] = useState(false);
   const [pendingClose, setPendingClose] = useState(false);
-  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
-  const [pendingLogout, setPendingLogout] = useState(false);
   const [mobileSection, setMobileSection] = useState<"summary" | "assignments" | "mine">("mine");
-
-  const refresh = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/trips/${tripId}`);
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError((json as { error?: string }).error ?? "加载失败");
-        return;
-      }
-      setData(json);
-      setError(null);
-    } catch {
-      setError("网络错误");
-    } finally {
-      setLoading(false);
-    }
-  }, [tripId]);
-
-  const handleDataUpdated = useCallback((nextData?: TripDashboardData) => {
-    if (nextData) {
-      setData(nextData);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    void refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 5000);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
 
   const myMember = useMemo(
     () => data?.members.find((member) => member.user_id === user?.id),
     [data, user]
   );
-
   const myRide = useMemo(
     () => getMyRide(myMember, data?.members ?? []),
     [myMember, data]
   );
+
   const isMyUnassigned =
     myMember != null &&
     myMember.has_car === 0 &&
     myMember.assigned_driver == null;
-
   const isOrganizer = user?.id != null && data?.trip.created_by === user.id;
   const isClosed = data?.status === "closed";
-  const needsProfileCompletion =
+  const shouldJoinViaInvite =
     !authLoading &&
     !loading &&
     data != null &&
-    (!user || !myMember || !isTripProfileComplete(myMember));
-  const mobileTabs = [
-    { key: "summary" as const, label: "摘要", icon: ClipboardList },
-    { key: "assignments" as const, label: "编组", icon: Route },
-    { key: "mine" as const, label: "我的", icon: UserRound },
-  ];
+    user != null &&
+    !myMember;
+  const shouldFocusMyProfile =
+    !authLoading &&
+    !loading &&
+    data != null &&
+    user != null &&
+    myMember != null;
 
   async function handleAutoAssign() {
     if (!data) return;
     setPendingAssign(true);
     try {
-      const res = await fetch(`/api/trips/${data.trip.id}/auto-assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unlock_self: true }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error((json as { error?: string }).error ?? "自动编组失败");
-        return;
-      }
-      const nextData = json as TripDashboardData;
+      const nextData = await tripClient.autoAssignTrip(data.trip.id, true);
       setData(nextData);
-      setError(null);
       toast.success(
         `自动编组完成：${nextData.stats.assignedPassengers} 人已上车，${nextData.stats.unassignedPassengers} 人未分配`
       );
+    } catch (nextError) {
+      toast.error(getFetchJsonErrorMessage(nextError, "自动编组失败"));
     } finally {
       setPendingAssign(false);
     }
@@ -144,10 +79,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
     if (!data || !window.confirm("确定退出这趟行程？")) return;
     setPendingLeave(true);
     try {
-      const res = await fetch(`/api/trips/${data.trip.id}/me`, { method: "DELETE" });
-      if (res.ok) {
-        router.push("/");
-      }
+      await tripClient.leaveTrip(data.trip.id);
+      router.push("/");
+    } catch (nextError) {
+      toast.error(getFetchJsonErrorMessage(nextError, "退出失败"));
     } finally {
       setPendingLeave(false);
     }
@@ -159,8 +94,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
     }
     setPendingClose(true);
     try {
-      await fetch(`/api/trips/${data.trip.id}/close`, { method: "POST" });
+      await tripClient.closeTrip(data.trip.id);
       await refresh();
+    } catch (nextError) {
+      toast.error(getFetchJsonErrorMessage(nextError, "关闭失败"));
     } finally {
       setPendingClose(false);
     }
@@ -170,17 +107,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
     if (!data) return;
 
     const inviteLink = `${window.location.origin}/t/${tripId}`;
-    const tripDate = formatActivityDateDisplay(data.trip.event_at) ?? "待定";
-    const inviteText = [
-      `一起去：${data.trip.name}`,
-      `时间：${tripDate}`,
-      `目的地：${data.trip.dest_name}`,
-      "",
-      "点开链接填一下你的出发地，顺手选下能不能开车、还能带几个人，我这边好一起把车位和路线安排明白。",
-      "",
-      "加入这趟：",
-      inviteLink,
-    ].join("\n");
+    const inviteText = buildTripInviteText(data.trip, inviteLink);
 
     try {
       await navigator.clipboard.writeText(inviteText);
@@ -190,61 +117,23 @@ function DashboardInner({ tripId }: { tripId: string }) {
     }
   }
 
-  async function handleLogout() {
-    setPendingLogout(true);
-    try {
-      await supabase.auth.signOut();
-      setLogoutDialogOpen(false);
-    } finally {
-      setPendingLogout(false);
-    }
-  }
-
-  function renderAssignmentsContent() {
-    if (!data) return null;
-
-    const driverList = (
-      <DriverList
-        activity={data.trip}
-        participants={data.members}
-        currentUserId={user?.id}
-        activityId={data.trip.id}
-        onUpdated={refresh}
-        canManageAllAssignments={Boolean(isOrganizer)}
-        interactionsDisabled={isClosed}
-      />
-    );
-
-    const unassignedList = (
-      <UnassignedList
-        activity={data.trip}
-        participants={data.members}
-        currentUserId={user?.id}
-        highlighted={Boolean(isMyUnassigned)}
-        activityId={data.trip.id}
-        onUpdated={refresh}
-        canManageAllAssignments={Boolean(isOrganizer)}
-        interactionsDisabled={isClosed}
-      />
-    );
-
-    return isMyUnassigned ? (
-      <>
-        {unassignedList}
-        {driverList}
-      </>
-    ) : (
-      <>
-        {driverList}
-        {unassignedList}
-      </>
-    );
-  }
+  const { openDialog, onOpenChange, onAuthSuccess } = authDialog;
 
   useEffect(() => {
-    if (!needsProfileCompletion || !data) return;
+    if (!authLoading && !user) {
+      openDialog();
+    }
+  }, [authLoading, openDialog, user]);
+
+  useEffect(() => {
+    if (!shouldJoinViaInvite || !data) return;
     router.replace(`/t/${data.trip.id}?from=dashboard`);
-  }, [data, needsProfileCompletion, router]);
+  }, [data, shouldJoinViaInvite, router]);
+
+  useEffect(() => {
+    if (!shouldFocusMyProfile) return;
+    setMobileSection("mine");
+  }, [shouldFocusMyProfile]);
 
   if (loading || authLoading) {
     return (
@@ -265,7 +154,15 @@ function DashboardInner({ tripId }: { tripId: string }) {
     );
   }
 
-  if (needsProfileCompletion) {
+  if (!authLoading && !user) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
+        正在等待登录...
+      </div>
+    );
+  }
+
+  if (shouldJoinViaInvite) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
         正在跳转到资料填写页...
@@ -275,323 +172,64 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   return (
     <div className="flex flex-1 flex-col bg-muted/20">
-      <header className="border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto max-w-6xl px-4 py-3 sm:py-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-start gap-2.5 sm:items-center sm:gap-3">
-              <Button
-                asChild
-                variant="ghost"
-                size="icon-sm"
-                className="mt-0.5 shrink-0 sm:mt-0"
-              >
-                <Link href="/">
-                  <ArrowLeft className="size-4" />
-                </Link>
-              </Button>
-              <div className="min-w-0">
-                <div className="truncate text-xl font-semibold leading-tight sm:text-base">
-                  {data.trip.name}
-                </div>
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
-              onClick={handleCopyInvite}
-            >
-              <Copy className="size-4" />
-              <span className="hidden sm:inline">复制邀请</span>
-            </Button>
-            {user ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
-                onClick={() => setLogoutDialogOpen(true)}
-              >
-                <LogOut className="size-4" />
-                <span className="hidden sm:inline">退出</span>
-              </Button>
-            ) : null}
-            </div>
-          </div>
-          {isClosed ? (
-            <div className="mt-3 hidden items-center gap-2 sm:flex">
-              <Badge variant="secondary">已关闭</Badge>
-            </div>
-          ) : null}
-        </div>
-      </header>
+      <TripPageHeader
+        tripName={data.trip.name}
+        closed={Boolean(isClosed)}
+        supabase={supabase}
+        showLogout={Boolean(user)}
+        onCopyInvite={() => void handleCopyInvite()}
+      />
 
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:py-6">
-        <div className="hidden sm:block">
+      <TripDashboardLayout
+        mobileSection={mobileSection}
+        onMobileSectionChange={setMobileSection}
+        renderSummarySection={() => (
           <TripSummaryCard
             data={data}
             editable={Boolean(isOrganizer)}
             onUpdated={handleDataUpdated}
           />
-        </div>
+        )}
+        renderAssignmentsSection={() => (
+          <AssignmentSection
+            trip={data.trip}
+            members={data.members}
+            currentUserId={user?.id}
+            canManageAllAssignments={Boolean(isOrganizer)}
+            interactionsDisabled={Boolean(isClosed)}
+            autoAssignPending={pendingAssign}
+            showAutoAssign={Boolean(myMember)}
+            highlightUnassigned={Boolean(isMyUnassigned)}
+            onAutoAssign={() => void handleAutoAssign()}
+            onUpdated={refresh}
+          />
+        )}
+        renderMyRideSection={() => (
+          <MyRideSection
+            myMember={myMember}
+            myRide={myRide}
+            description="个人只需要知道自己开车、坐谁的车，或者目前还未分配。"
+          />
+        )}
+        renderMyProfileSection={() => (
+          <MyProfileSection
+            trip={data.trip}
+            members={data.members}
+            myMember={myMember}
+            isOrganizer={Boolean(isOrganizer)}
+            pendingDestructiveAction={isOrganizer ? pendingClose : pendingLeave}
+            onDestructiveAction={isOrganizer ? handleCloseTrip : handleLeave}
+            onUpdated={refresh}
+          />
+        )}
+      />
 
-        <section className="hidden gap-6 xl:grid xl:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-6">
-            <Card>
-              <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle>编组结果</CardTitle>
-                  <CardDescription>
-                    保存资料会触发自动编组；你也可以随时重新编排。
-                  </CardDescription>
-                </div>
-                {myMember ? (
-                  <Button
-                    onClick={() => void handleAutoAssign()}
-                    disabled={pendingAssign || isClosed}
-                    className="w-full shrink-0 sm:w-auto"
-                  >
-                    <Shuffle className="size-4" />
-                    {pendingAssign ? "编组中..." : "自动编组"}
-                  </Button>
-                ) : null}
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {renderAssignmentsContent()}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>我的乘车结果</CardTitle>
-                <CardDescription>
-                  个人只需要知道自己开车、坐谁的车，或者目前还未分配。
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                {!myMember ? (
-                  <p className="text-muted-foreground">
-                    你还未加入这趟行程，请先通过邀请页确认加入。
-                  </p>
-                ) : myMember.has_car === 1 ? (
-                  <div className="rounded-xl border bg-background px-4 py-3">
-                    <div className="flex items-center gap-2 font-medium">
-                      <Car className="size-4 text-emerald-600" />
-                      你是司机
-                    </div>
-                    <p className="mt-1 text-muted-foreground">
-                      当前设置可载 {myMember.seats} 人，请在下方维护你的出发地和车辆信息。
-                    </p>
-                  </div>
-                ) : myRide ? (
-                  <div className="rounded-xl border bg-background px-4 py-3">
-                    <div className="flex items-center gap-2 font-medium">
-                      <Route className="size-4 text-emerald-600" />
-                      你当前乘坐 {myRide.nickname} 的车
-                    </div>
-                    <p className="mt-1 text-muted-foreground">
-                      {myRide.location_name
-                        ? `司机出发地：${myRide.location_name}`
-                        : "司机尚未填写出发地。"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-dashed bg-background px-4 py-3">
-                    <div className="font-medium">你暂时还未分配车辆</div>
-                    <p className="mt-1 text-muted-foreground">
-                      {myMember.is_free_agent
-                        ? "先把自己的出发地和是否开车填写完整，系统会自动重新编组。"
-                        : "你当前处于手动下车状态，点击自动编组后会重新作为自由人参与编排。"}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-6">
-            {myMember ? (
-              <MyInfoPanel
-                participant={myMember}
-                activityId={data.trip.id}
-                onUpdated={refresh}
-                destCenter={[data.trip.dest_lng, data.trip.dest_lat]}
-                activity={data.trip}
-                participants={data.members}
-                isOrganizer={Boolean(isOrganizer)}
-                destructivePending={isOrganizer ? pendingClose : pendingLeave}
-                onDestructiveAction={isOrganizer ? handleCloseTrip : handleLeave}
-              />
-            ) : (
-              <Card>
-                <CardHeader>
-                  <CardTitle>我的资料</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Button asChild className="w-full">
-                    <Link href={`/t/${data.trip.id}`}>去邀请页加入并填写资料</Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-          </div>
-        </section>
-
-        <section className="space-y-4 sm:hidden">
-          <Tabs value={mobileSection} onValueChange={(value) => setMobileSection(value as typeof mobileSection)}>
-            <div className="sticky top-0 z-10 rounded-2xl border bg-background/90 p-1 backdrop-blur">
-              <TabsList className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0">
-                {mobileTabs.map((tab) => {
-                  const Icon = tab.icon;
-                  return (
-                    <TabsTrigger
-                      key={tab.key}
-                      value={tab.key}
-                      className="flex h-auto flex-col gap-1 rounded-xl py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
-                    >
-                      <Icon className="size-4" />
-                      {tab.label}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </div>
-
-            <TabsContent value="summary" className="space-y-4">
-              <TripSummaryCard
-                data={data}
-                compact
-                editable={Boolean(isOrganizer)}
-                onUpdated={handleDataUpdated}
-              />
-              <Card>
-                <CardHeader>
-                  <CardTitle>我的乘车结果</CardTitle>
-                  <CardDescription>先看这次出行里你与哪辆车相关。</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3 text-sm">
-                  {!myMember ? (
-                    <p className="text-muted-foreground">
-                      你还未加入这趟行程，请先通过邀请页确认加入。
-                    </p>
-                  ) : myMember.has_car === 1 ? (
-                    <div className="rounded-xl border bg-background px-4 py-3">
-                      <div className="flex items-center gap-2 font-medium">
-                        <Car className="size-4 text-emerald-600" />
-                        你是司机
-                      </div>
-                      <p className="mt-1 text-muted-foreground">
-                        当前设置可载 {myMember.seats} 人，请在“我的”栏继续维护资料。
-                      </p>
-                    </div>
-                  ) : myRide ? (
-                    <div className="rounded-xl border bg-background px-4 py-3">
-                      <div className="flex items-center gap-2 font-medium">
-                        <Route className="size-4 text-emerald-600" />
-                        你当前乘坐 {myRide.nickname} 的车
-                      </div>
-                      <p className="mt-1 text-muted-foreground">
-                        {myRide.location_name
-                          ? `司机出发地：${myRide.location_name}`
-                          : "司机尚未填写出发地。"}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed bg-background px-4 py-3">
-                      <div className="font-medium">你暂时还未分配车辆</div>
-                      <p className="mt-1 text-muted-foreground">
-                        先把自己的出发地和是否开车填写完整，系统会自动重新编组。
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="assignments" className="space-y-4">
-              <Card>
-              <CardHeader className="flex flex-col gap-4">
-                <div>
-                  <CardTitle>编组结果</CardTitle>
-                  <CardDescription>手机端单独一栏查看车辆与待安排成员。</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {renderAssignmentsContent()}
-                {myMember ? (
-                  <Button
-                    onClick={() => void handleAutoAssign()}
-                    disabled={pendingAssign || isClosed}
-                    className="w-full"
-                  >
-                    <Shuffle className="size-4" />
-                    {pendingAssign ? "编组中..." : "自动编组"}
-                  </Button>
-                ) : null}
-              </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="mine" className="space-y-4">
-              {myMember ? (
-                <MyInfoPanel
-                  participant={myMember}
-                  activityId={data.trip.id}
-                  onUpdated={refresh}
-                  destCenter={[data.trip.dest_lng, data.trip.dest_lat]}
-                  activity={data.trip}
-                  participants={data.members}
-                  isOrganizer={Boolean(isOrganizer)}
-                  destructivePending={isOrganizer ? pendingClose : pendingLeave}
-                  onDestructiveAction={isOrganizer ? handleCloseTrip : handleLeave}
-                />
-              ) : (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>我的资料</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <Button asChild className="w-full">
-                      <Link href={`/t/${data.trip.id}`}>去邀请页加入并填写资料</Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-
-            </TabsContent>
-          </Tabs>
-        </section>
-      </main>
-
-      <Dialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>确认退出登录？</DialogTitle>
-            <DialogDescription>
-              退出后需要重新登录才能继续查看和编辑你的行程信息。
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setLogoutDialogOpen(false)}
-              disabled={pendingLogout}
-            >
-              取消
-            </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              onClick={() => void handleLogout()}
-              disabled={pendingLogout}
-            >
-              {pendingLogout ? "退出中…" : "确认退出"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PasswordAuthDialog
+        open={authDialog.open}
+        onOpenChange={onOpenChange}
+        supabase={supabase}
+        onAuthSuccess={onAuthSuccess}
+      />
     </div>
   );
 }

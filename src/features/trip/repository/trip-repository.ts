@@ -1,0 +1,33 @@
+import {
+  assignRide,
+  bulkAssignRides,
+  clearAutoAssignableAssignments,
+  createActivity,
+  disbandActivity,
+  getActivity,
+  getParticipantById,
+  getParticipants,
+  isActivityDisbanded,
+  joinActivity,
+  leaveActivity,
+  listActivitiesForUser,
+  updateActivity,
+  updateParticipant,
+} from "@/lib/data";
+
+export const tripRepository = {
+  createTrip: createActivity,
+  updateTrip: updateActivity,
+  closeTrip: disbandActivity,
+  getTrip: getActivity,
+  listMembers: getParticipants,
+  getMemberById: getParticipantById,
+  updateMember: updateParticipant,
+  listTripsForUser: listActivitiesForUser,
+  joinTrip: joinActivity,
+  leaveTrip: leaveActivity,
+  assignRide,
+  bulkAssignRides,
+  clearAutoAssignableAssignments,
+  isTripClosed: isActivityDisbanded,
+};

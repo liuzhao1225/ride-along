@@ -16,6 +16,13 @@ import {
   MAP_STAR_SCREEN_PX,
   MAP_STAR_YELLOW,
 } from "@/lib/amap-dot-style";
+import {
+  buildRouteMapHint,
+  buildRouteStops,
+  getDisplayPassengersForDriver,
+  getPassengerRideIndex,
+  resolveRouteMapView,
+} from "./route-map-model";
 
 const ROUTE_LINE = "#1677ff";
 const DEST_DOT = "#f5222d";
@@ -61,31 +68,12 @@ export function RouteMap({
   );
 
   const view = useMemo(() => {
-    if (previewDriver) {
-      return { kind: "driver_preview" as const, driver: previewDriver };
-    }
-    if (previewParticipants) {
-      return {
-        kind: "participants_preview" as const,
-        participants: previewParticipants,
-      };
-    }
-    if (!myParticipant) {
-      return { kind: "participants_preview" as const, participants: [] };
-    }
-    if (myParticipant.has_car) {
-      return { kind: "driver" as const, driver: myParticipant };
-    }
-    if (myParticipant.assigned_driver) {
-      const driver = participantsWithPreview.find(
-        (p) => p.id === myParticipant.assigned_driver
-      );
-      if (driver) {
-        return { kind: "passenger_ride" as const, driver, passenger: myParticipant };
-      }
-      return { kind: "passenger_ride_missing_driver" as const };
-    }
-    return { kind: "passenger_waiting" as const, me: myParticipant };
+    return resolveRouteMapView({
+      myParticipant,
+      previewDriver,
+      previewParticipants,
+      participants: participantsWithPreview,
+    });
   }, [myParticipant, participantsWithPreview, previewDriver, previewParticipants]);
 
   const activeDriver =
@@ -313,14 +301,7 @@ export function RouteMap({
       getMarkerStyle(driver)
     );
 
-    const passengers = participantsWithPreview
-      .filter((p) => p.assigned_driver === driver.id && p.location_lat != null)
-      .sort((left, right) => {
-        const leftOrder = left.pickup_order ?? Number.MAX_SAFE_INTEGER;
-        const rightOrder = right.pickup_order ?? Number.MAX_SAFE_INTEGER;
-        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-        return left.created_at - right.created_at;
-      });
+    const passengers = getDisplayPassengersForDriver(driver.id, participantsWithPreview);
 
     for (const p of passengers) {
       addPersonDot(
@@ -332,16 +313,13 @@ export function RouteMap({
       );
     }
 
-    const passengerRideIndex =
-      view.kind === "passenger_ride"
-        ? passengers.findIndex((p) => p.id === view.passenger.id)
-        : -1;
-
-    const stops: Array<[number, number]> = [
-      [driver.location_lng, driver.location_lat],
-      ...passengers.map((p) => [p.location_lng!, p.location_lat!] as [number, number]),
-      [activity.dest_lng, activity.dest_lat],
-    ];
+    const passengerRideIndex = getPassengerRideIndex(view, passengers);
+    const stops = buildRouteStops(
+      activity.dest_lat,
+      activity.dest_lng,
+      driver,
+      passengers
+    );
 
     const segments = stops.slice(0, -1).map((start, index) => ({
       start,
@@ -395,44 +373,7 @@ export function RouteMap({
     drawRoutes();
   }, [loaded, AMap, activity.id, activity.dest_lat, activity.dest_lng, drawRoutes]);
 
-  const hint = useMemo(() => {
-    if (view.kind === "passenger_waiting") {
-      if (!myParticipant) return null;
-      return myParticipant.location_lat == null
-        ? "你尚未设置出发地；上车前仅显示目的地。设置出发地后将显示红点。"
-        : "尚未分配车辆：不显示驾车路线，红点为你的出发位置。";
-    }
-    if (view.kind === "driver_preview") {
-      return view.driver.location_lat == null ||
-        view.driver.location_lng == null
-        ? "车主尚未设置出发地，暂时无法显示驾车路线。"
-        : null;
-    }
-    if (view.kind === "participants_preview") {
-      const locatedCount =
-        view.participants.filter(
-          (participant) =>
-            participant.location_lat != null && participant.location_lng != null
-        ).length;
-      return locatedCount > 0
-        ? "红点为当前未分组成员的出发位置。"
-        : "未分组成员暂未设置出发地，地图仅显示目的地。";
-    }
-    if (view.kind === "driver") {
-      if (!myParticipant) return null;
-      return myParticipant.location_lat == null ||
-        myParticipant.location_lng == null
-        ? "请先在「我的信息」中设置出发地，即可查看驾车路线。"
-        : null;
-    }
-    if (view.kind === "passenger_ride") {
-      return view.driver.location_lat == null ||
-        view.driver.location_lng == null
-        ? "司机尚未设置出发地，暂时无法显示驾车路线。"
-        : null;
-    }
-    return null;
-  }, [view, myParticipant]);
+  const hint = useMemo(() => buildRouteMapHint(view, myParticipant), [view, myParticipant]);
 
   if (!loaded) {
     return (

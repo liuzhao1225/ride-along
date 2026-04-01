@@ -1,45 +1,40 @@
-import { getAuthenticatedUser } from "@/lib/auth-server";
 import { setTripAssignment } from "@/features/trip/server";
+import {
+  mapRouteError,
+  parseJsonBody,
+  withAuthenticatedUser,
+} from "@/features/trip/server/route-response";
 
 export async function PATCH(
   request: Request,
   ctx: RouteContext<"/api/trips/[tripId]/assignments/[memberId]">
 ) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
-    return Response.json({ error: "请先登录" }, { status: 401 });
-  }
+  return withAuthenticatedUser(async (user) => {
+    const { tripId, memberId } = await ctx.params;
+    const body = await parseJsonBody<Record<string, unknown>>(request);
 
-  const { tripId, memberId } = await ctx.params;
-  const body = await request.json().catch(() => ({}));
-
-  try {
-    const data = await setTripAssignment({
-      tripId,
-      actorUserId: user.id,
-      passengerMemberId: memberId,
-      driverMemberId:
-        typeof body.driver_member_id === "string" ? body.driver_member_id : null,
-    });
-    return Response.json(data);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (message === "trip_not_found") {
-      return Response.json({ error: "行程不存在" }, { status: 404 });
+    try {
+      const data = await setTripAssignment({
+        tripId,
+        actorUserId: user.id,
+        passengerMemberId: memberId,
+        driverMemberId:
+          typeof body.driver_member_id === "string" ? body.driver_member_id : null,
+      });
+      return Response.json(data);
+    } catch (error) {
+      return mapRouteError(
+        error,
+        {
+          trip_not_found: { status: 404, error: "行程不存在" },
+          forbidden: { status: 403, error: "你没有权限调整该成员" },
+          trip_closed: { status: 410, error: "行程已关闭" },
+          invalid_passenger: { status: 400, error: "成员信息无效" },
+          invalid_driver: { status: 400, error: "成员信息无效" },
+          driver_full: { status: 409, error: "该司机已满座" },
+        },
+        "调整失败"
+      );
     }
-    if (message === "forbidden") {
-      return Response.json({ error: "你没有权限调整该成员" }, { status: 403 });
-    }
-    if (message === "trip_closed") {
-      return Response.json({ error: "行程已关闭" }, { status: 410 });
-    }
-    if (message === "invalid_passenger" || message === "invalid_driver") {
-      return Response.json({ error: "成员信息无效" }, { status: 400 });
-    }
-    if (message === "driver_full") {
-      return Response.json({ error: "该司机已满座" }, { status: 409 });
-    }
-    console.error(error);
-    return Response.json({ error: "调整失败" }, { status: 500 });
-  }
+  });
 }

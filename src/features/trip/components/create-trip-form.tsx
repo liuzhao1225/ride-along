@@ -1,14 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, CalendarRange, Car, MapPin } from "lucide-react";
+import { Car, MapPin } from "lucide-react";
 import { PasswordAuthDialog } from "@/components/password-auth-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -16,62 +13,52 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AMapProvider } from "@/components/amap-loader";
-import { LocationPicker, type Location } from "@/components/location-picker";
+import { getFetchJsonErrorMessage } from "../client/fetch-json";
+import { tripClient } from "../client/trip-client";
+import { useAuthDialogAction } from "../hooks/use-auth-dialog-action";
 import {
-  defaultEventDateInput,
-  eventDateInputToIso,
-} from "@/lib/activity-date";
+  createEmptyTripFormValue,
+  getTripFormError,
+  serializeTripFormValue,
+  type TripFormValue,
+} from "../model";
+import { PageHeader } from "./page-header";
+import { TripFormFields } from "./trip-form-fields";
 
 export function CreateTripForm() {
   const router = useRouter();
   const { user, loading, supabase } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
-  const [title, setTitle] = useState("");
-  const [tripDate, setTripDate] = useState(defaultEventDateInput);
-  const [destination, setDestination] = useState<Location | null>(null);
+  const authDialog = useAuthDialogAction();
+  const [formValue, setFormValue] = useState<TripFormValue>(createEmptyTripFormValue);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function createTrip() {
-    if (!user || !destination) return;
-    const tripDateIso = eventDateInputToIso(tripDate);
-    if (!tripDateIso) {
-      setError("请输入有效日期");
+    const formError = getTripFormError(formValue);
+    if (formError) {
+      setError(formError);
       return;
     }
+
+    const currentUser =
+      user ?? (await supabase.auth.getUser()).data.user;
+    if (!currentUser) return;
 
     setPending(true);
     setError(null);
     try {
-      const res = await fetch("/api/trips", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: title.trim(),
-          destination_name: destination.name,
-          destination_lat: destination.lat,
-          destination_lng: destination.lng,
-          trip_date: tripDateIso,
-        }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setError((data as { error?: string }).error ?? "创建失败");
-        return;
-      }
-
-      await fetch(`/api/trips/${data.trip.id}/join`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nickname:
-            (user.user_metadata?.display_name as string | undefined)?.trim() ||
-            user.email?.split("@")[0] ||
-            "发起人",
-        }),
-      });
+      const payload = serializeTripFormValue(formValue);
+      const data = await tripClient.createTrip(payload);
+      await tripClient.joinTrip(
+        data.trip.id,
+        ((currentUser.user_metadata?.display_name as string | undefined)?.trim() ||
+          currentUser.email?.split("@")[0] ||
+          "发起人") as string
+      );
 
       router.push(`/t/${data.trip.id}`);
+    } catch (nextError) {
+      setError(getFetchJsonErrorMessage(nextError, "创建失败"));
     } finally {
       setPending(false);
     }
@@ -85,26 +72,17 @@ export function CreateTripForm() {
         </div>
       ) : (
         <div className="flex flex-1 flex-col bg-muted/20">
-          <header className="border-b bg-background/90 backdrop-blur">
-            <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
-              <Button asChild variant="ghost" size="icon-sm">
-                <Link href="/">
-                  <ArrowLeft className="size-4" />
-                </Link>
-              </Button>
-              <div className="flex items-center gap-2">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">
-                  <Car className="size-5" />
-                </div>
-                <div>
-                  <div className="font-semibold">发起一趟拼车</div>
-                  <div className="text-xs text-muted-foreground">
-                    先定义目的地，再邀请成员补全资料
-                  </div>
-                </div>
+          <PageHeader
+            backHref="/"
+            maxWidthClassName="max-w-3xl"
+            icon={
+              <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">
+                <Car className="size-5" />
               </div>
-            </div>
-          </header>
+            }
+            title="发起一趟拼车"
+            subtitle="先定义目的地，再邀请成员补全资料"
+          />
 
           <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 sm:py-8">
             <Card className="mx-auto max-w-2xl">
@@ -112,48 +90,15 @@ export function CreateTripForm() {
                 <CardTitle>行程信息</CardTitle>
               </CardHeader>
               <CardContent className="space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="trip-title">行程名称</Label>
-                  <Input
-                    id="trip-title"
-                    placeholder="例如：周六早上去莫干山"
-                    value={title}
-                    onChange={(event) => setTitle(event.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="trip-date">出行日期</Label>
-                  <div className="relative">
-                    <CalendarRange className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="trip-date"
-                      className="pl-9"
-                      type="date"
-                      value={tripDate}
-                      onChange={(event) => setTripDate(event.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>目的地</Label>
-                  <LocationPicker
-                    value={destination}
-                    onChange={setDestination}
-                    placeholder="搜索目的地..."
-                  />
-                </div>
+                <TripFormFields value={formValue} onChange={setFormValue} />
 
                 {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
                 <Button
                   className="w-full bg-emerald-600 text-white hover:bg-emerald-600/90"
-                  disabled={!title.trim() || !destination || pending}
+                  disabled={!formValue.title.trim() || !formValue.destination || pending}
                   onClick={() => {
-                    if (user) {
-                      void createTrip();
-                    } else {
-                      setShowAuth(true);
-                    }
+                    authDialog.requireAuth(Boolean(user), createTrip);
                   }}
                 >
                   {pending ? "创建中..." : "创建并进入控制台"}
@@ -164,13 +109,10 @@ export function CreateTripForm() {
           </main>
 
           <PasswordAuthDialog
-            open={showAuth}
-            onOpenChange={setShowAuth}
+            open={authDialog.open}
+            onOpenChange={authDialog.onOpenChange}
             supabase={supabase}
-            onAuthSuccess={() => {
-              setShowAuth(false);
-              void createTrip();
-            }}
+            onAuthSuccess={authDialog.onAuthSuccess}
           />
         </div>
       )}

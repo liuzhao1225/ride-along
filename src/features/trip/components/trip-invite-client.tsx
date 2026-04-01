@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Car, LogIn, UserRound } from "lucide-react";
+import { ArrowRight, Car, LogIn, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { AMapProvider } from "@/components/amap-loader";
 import { LocationPicker, type Location } from "@/components/location-picker";
@@ -20,14 +20,18 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { getFetchJsonErrorMessage } from "../client/fetch-json";
+import { tripClient } from "../client/trip-client";
+import { useAuthDialogAction } from "../hooks/use-auth-dialog-action";
 import type { TripDashboardData } from "../types";
+import { PageHeader } from "./page-header";
 import { TripSummaryCard } from "./trip-summary-card";
 
 function InviteInner({ inviteCode }: { inviteCode: string }) {
   const router = useRouter();
   const { user, loading, supabase } = useAuth();
-  const [showAuth, setShowAuth] = useState(false);
-  const [submitAfterAuth, setSubmitAfterAuth] = useState(false);
+  const authDialog = useAuthDialogAction();
+  const { openDialog, onOpenChange, onAuthSuccess } = authDialog;
   const [pending, setPending] = useState(false);
   const [data, setData] = useState<TripDashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,16 +43,16 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const res = await fetch(`/api/trips/${inviteCode}`);
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      try {
+        const json = await tripClient.getDashboard(inviteCode);
         if (!cancelled) {
-          setError((json as { error?: string }).error ?? "行程不存在");
+          setData(json);
+          setError(null);
         }
-        return;
-      }
-      if (!cancelled) {
-        setData(json);
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(getFetchJsonErrorMessage(nextError, "行程不存在"));
+        }
       }
     })();
     return () => {
@@ -68,10 +72,9 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
 
   useEffect(() => {
     if (!loading && !user) {
-      setSubmitAfterAuth(false);
-      setShowAuth(true);
+      openDialog();
     }
-  }, [loading, user]);
+  }, [loading, openDialog, user]);
 
   const myMember = useMemo(
     () => data?.members.find((member) => member.user_id === user?.id),
@@ -97,62 +100,39 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
   }, [myMember]);
 
   async function submit() {
-    if (!user || !data) return;
+    if (!data) return;
     if (!departure) {
       setError("请先填写出发地");
       return;
     }
 
+    const currentUser =
+      user ?? (await supabase.auth.getUser()).data.user;
+    if (!currentUser) return;
+
     setPending(true);
     setError(null);
     try {
       if (!myMember) {
-        const joinRes = await fetch(`/api/trips/${data.trip.id}/join`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ nickname: nickname.trim() || "成员" }),
-        });
-        const joinJson = await joinRes.json().catch(() => ({}));
-        if (!joinRes.ok) {
-          setError((joinJson as { error?: string }).error ?? "加入失败");
-          return;
-        }
+        await tripClient.joinTrip(data.trip.id, nickname.trim() || "成员");
       }
 
-      const profileRes = await fetch(`/api/trips/${data.trip.id}/my-profile`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await tripClient.saveMyProfileAndRefreshAssignments(
+        data.trip.id,
+        {
           nickname: nickname.trim() || "成员",
           location_name: departure?.name ?? null,
           location_lat: departure?.lat ?? null,
           location_lng: departure?.lng ?? null,
           has_car: canDrive ? 1 : 0,
           seats: canDrive ? seats : 0,
-        }),
-      });
-      const profileJson = await profileRes.json().catch(() => ({}));
-      if (!profileRes.ok) {
-        setError((profileJson as { error?: string }).error ?? "保存失败");
-        return;
-      }
-
+        },
+        false
+      );
       toast.success("资料已保存");
-
-      const autoAssignRes = await fetch(`/api/trips/${data.trip.id}/auto-assign`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ unlock_self: false }),
-      });
-      const autoAssignJson = await autoAssignRes.json().catch(() => ({}));
-      if (!autoAssignRes.ok) {
-        setError(
-          (autoAssignJson as { error?: string }).error ?? "自动编组失败"
-        );
-        return;
-      }
-
       router.push(`/trips/${data.trip.id}`);
+    } catch (nextError) {
+      setError(getFetchJsonErrorMessage(nextError, "保存失败"));
     } finally {
       setPending(false);
     }
@@ -181,26 +161,16 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
 
   return (
     <div className="flex flex-1 flex-col bg-muted/20">
-      <header className="border-b bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
-          <Button asChild variant="ghost" size="icon-sm">
-            <Link href="/">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
-          <div className="flex items-center gap-2">
-            <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">
-              <Car className="size-5" />
-            </div>
-            <div>
-              <div className="font-semibold">加入拼车行程</div>
-              <div className="text-xs text-muted-foreground">
-                先确认参与，再补全你的拼车资料
-              </div>
-            </div>
+      <PageHeader
+        backHref="/"
+        icon={
+          <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">
+            <Car className="size-5" />
           </div>
-        </div>
-      </header>
+        }
+        title="加入拼车行程"
+        subtitle="先确认参与，再补全你的拼车资料"
+      />
 
       <main className="mx-auto grid w-full max-w-4xl gap-4 px-4 py-4 sm:gap-6 sm:py-8 lg:grid-cols-[1fr_1fr]">
         <TripSummaryCard data={data} />
@@ -276,12 +246,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
               className="w-full bg-emerald-600 text-white hover:bg-emerald-600/90"
               disabled={pending || !profileComplete}
               onClick={() => {
-                if (user) {
-                  void submit();
-                } else {
-                  setSubmitAfterAuth(true);
-                  setShowAuth(true);
-                }
+                authDialog.requireAuth(Boolean(user), submit);
               }}
             >
               {pending ? "提交中..." : myMember ? "保存并进入控制台" : "加入并进入控制台"}
@@ -297,21 +262,10 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
       </main>
 
       <PasswordAuthDialog
-        open={showAuth}
-        onOpenChange={(open) => {
-          setShowAuth(open);
-          if (!open) {
-            setSubmitAfterAuth(false);
-          }
-        }}
+        open={authDialog.open}
+        onOpenChange={onOpenChange}
         supabase={supabase}
-        onAuthSuccess={() => {
-          setShowAuth(false);
-          if (submitAfterAuth) {
-            setSubmitAfterAuth(false);
-            void submit();
-          }
-        }}
+        onAuthSuccess={onAuthSuccess}
       />
     </div>
   );
