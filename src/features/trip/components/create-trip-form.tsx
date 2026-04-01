@@ -87,13 +87,10 @@ export function CreateTripForm() {
         <div className="flex flex-1 flex-col bg-muted/20">
           <header className="border-b bg-background/90 backdrop-blur">
             <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4">
-              <Button
-                nativeButton={false}
-                render={<Link href="/" />}
-                variant="ghost"
-                size="icon-sm"
-              >
-                <ArrowLeft className="size-4" />
+              <Button asChild variant="ghost" size="icon-sm">
+                <Link href="/">
+                  <ArrowLeft className="size-4" />
+                </Link>
               </Button>
               <div className="flex items-center gap-2">
                 <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">

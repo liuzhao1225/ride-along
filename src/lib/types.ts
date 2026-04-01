@@ -26,6 +26,7 @@ export interface TripMember {
   has_car: number;
   seats: number;
   assigned_driver: string | null;
+  pickup_order: number | null;
   created_at: number;
 }
 

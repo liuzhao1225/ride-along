@@ -50,6 +50,8 @@ function mapParticipant(row: Record<string, unknown>): TripMember {
     has_car: Number(row.has_car) ? 1 : 0,
     seats: Number(row.seats) ?? 0,
     assigned_driver: (row.assigned_driver as string) ?? null,
+    pickup_order:
+      row.pickup_order != null ? Number(row.pickup_order) : null,
     created_at: ts(row.created_at as string),
   };
 }
@@ -238,6 +240,7 @@ export async function updateParticipant(
     has_car?: number;
     seats?: number;
     nickname?: string;
+    pickup_order?: number | null;
   }
 ): Promise<TripMember | null> {
   const supabase = createAdminClient();
@@ -261,7 +264,7 @@ export async function updateParticipant(
   if (updates.has_car === 0) {
     await supabase
       .from(PART)
-      .update({ assigned_driver: null })
+      .update({ assigned_driver: null, pickup_order: null })
       .eq("assigned_driver", participantId);
   }
 
@@ -270,25 +273,30 @@ export async function updateParticipant(
 
 export async function assignRide(
   passengerId: string,
-  driverId: string | null
+  driverId: string | null,
+  pickupOrder: number | null = null
 ): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from(PART)
-    .update({ assigned_driver: driverId })
+    .update({ assigned_driver: driverId, pickup_order: pickupOrder })
     .eq("id", passengerId);
 
   if (error) throw error;
 }
 
 export async function bulkAssignRides(
-  assignments: { passengerId: string; driverId: string }[]
+  assignments: {
+    passengerId: string;
+    driverId: string | null;
+    pickupOrder: number | null;
+  }[]
 ): Promise<void> {
   const supabase = createAdminClient();
-  for (const { passengerId, driverId } of assignments) {
+  for (const { passengerId, driverId, pickupOrder } of assignments) {
     const { error } = await supabase
       .from(PART)
-      .update({ assigned_driver: driverId })
+      .update({ assigned_driver: driverId, pickup_order: pickupOrder })
       .eq("id", passengerId);
     if (error) throw error;
   }
@@ -298,7 +306,7 @@ export async function clearAssignments(activityId: string): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from(PART)
-    .update({ assigned_driver: null })
+    .update({ assigned_driver: null, pickup_order: null })
     .eq("activity_id", activityId)
     .eq("has_car", 0);
 
@@ -324,7 +332,7 @@ export async function leaveActivity(
 
   await supabase
     .from(PART)
-    .update({ assigned_driver: null })
+    .update({ assigned_driver: null, pickup_order: null })
     .eq("assigned_driver", participantId);
 
   const { error } = await supabase.from(PART).delete().eq("id", participantId);

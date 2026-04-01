@@ -19,13 +19,19 @@ const DEST_DOT = "#f5222d";
 interface RouteMapProps {
   activity: Activity;
   participants: Participant[];
-  myParticipant: Participant;
+  myParticipant?: Participant;
+  previewDriver?: Participant;
+  previewParticipants?: Participant[];
+  heightClassName?: string;
 }
 
 export function RouteMap({
   activity,
   participants,
   myParticipant,
+  previewDriver,
+  previewParticipants,
+  heightClassName,
 }: RouteMapProps) {
   const { loaded, AMap } = useAMap();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,6 +44,18 @@ export function RouteMap({
   const prevActivityIdRef = useRef<string | null>(null);
 
   const view = useMemo(() => {
+    if (previewDriver) {
+      return { kind: "driver_preview" as const, driver: previewDriver };
+    }
+    if (previewParticipants) {
+      return {
+        kind: "participants_preview" as const,
+        participants: previewParticipants,
+      };
+    }
+    if (!myParticipant) {
+      return { kind: "participants_preview" as const, participants: [] };
+    }
     if (myParticipant.has_car) {
       return { kind: "driver" as const, driver: myParticipant };
     }
@@ -51,7 +69,18 @@ export function RouteMap({
       return { kind: "passenger_ride_missing_driver" as const };
     }
     return { kind: "passenger_waiting" as const, me: myParticipant };
-  }, [myParticipant, participants]);
+  }, [myParticipant, participants, previewDriver, previewParticipants]);
+
+  const activeDriver =
+    view.kind === "passenger_waiting" ||
+    view.kind === "passenger_ride_missing_driver" ||
+    view.kind === "participants_preview"
+      ? null
+      : view.driver;
+
+  const waitingParticipant = view.kind === "passenger_waiting" ? view.me : null;
+  const previewMembers =
+    view.kind === "participants_preview" ? view.participants : null;
 
   const clearOverlays = useCallback(() => {
     for (const o of overlaysRef.current) {
@@ -134,7 +163,8 @@ export function RouteMap({
     }
 
     if (view.kind === "passenger_waiting") {
-      const me = view.me;
+      const me = waitingParticipant;
+      if (!me) return;
       if (me.location_lat != null && me.location_lng != null) {
         addPersonDot(map, me.location_lng, me.location_lat, "red");
       }
@@ -142,7 +172,23 @@ export function RouteMap({
       return;
     }
 
-    const driver = view.driver;
+    if (view.kind === "participants_preview") {
+      for (const participant of previewMembers ?? []) {
+        if (participant.location_lat != null && participant.location_lng != null) {
+          addPersonDot(
+            map,
+            participant.location_lng,
+            participant.location_lat,
+            "red"
+          );
+        }
+      }
+      fitMapIfNeeded(map, 300);
+      return;
+    }
+
+    const driver = activeDriver;
+    if (!driver) return;
 
     if (driver.location_lat == null || driver.location_lng == null) {
       fitMapIfNeeded(map, 300);
@@ -151,9 +197,14 @@ export function RouteMap({
 
     addPersonDot(map, driver.location_lng, driver.location_lat, "green");
 
-    const passengers = participants.filter(
-      (p) => p.assigned_driver === driver.id && p.location_lat != null
-    );
+    const passengers = participants
+      .filter((p) => p.assigned_driver === driver.id && p.location_lat != null)
+      .sort((left, right) => {
+        const leftOrder = left.pickup_order ?? Number.MAX_SAFE_INTEGER;
+        const rightOrder = right.pickup_order ?? Number.MAX_SAFE_INTEGER;
+        if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+        return left.created_at - right.created_at;
+      });
 
     for (const p of passengers) {
       addPersonDot(map, p.location_lng!, p.location_lat!, "green");
@@ -201,9 +252,10 @@ export function RouteMap({
     addPersonDot,
     fitMapIfNeeded,
     participants,
-    view.driver,
     view.kind,
-    view.me,
+    activeDriver,
+    waitingParticipant,
+    previewMembers,
   ]);
 
   useEffect(() => {
@@ -233,11 +285,29 @@ export function RouteMap({
 
   const hint = useMemo(() => {
     if (view.kind === "passenger_waiting") {
+      if (!myParticipant) return null;
       return myParticipant.location_lat == null
         ? "你尚未设置出发地；上车前仅显示目的地。设置出发地后将显示红点。"
         : "尚未分配车辆：不显示驾车路线，红点为你的出发位置。";
     }
+    if (view.kind === "driver_preview") {
+      return view.driver.location_lat == null ||
+        view.driver.location_lng == null
+        ? "车主尚未设置出发地，暂时无法显示驾车路线。"
+        : null;
+    }
+    if (view.kind === "participants_preview") {
+      const locatedCount =
+        view.participants.filter(
+          (participant) =>
+            participant.location_lat != null && participant.location_lng != null
+        ).length;
+      return locatedCount > 0
+        ? "红点为当前未分组成员的出发位置。"
+        : "未分组成员暂未设置出发地，地图仅显示目的地。";
+    }
     if (view.kind === "driver") {
+      if (!myParticipant) return null;
       return myParticipant.location_lat == null ||
         myParticipant.location_lng == null
         ? "请先在「我的信息」中设置出发地，即可查看驾车路线。"
@@ -268,7 +338,7 @@ export function RouteMap({
       <div className="relative w-full">
         <div
           ref={containerRef}
-          className="w-full h-64 sm:h-80 rounded-lg border"
+          className={`w-full rounded-lg border ${heightClassName ?? "h-64 sm:h-80"}`}
         />
         <Button
           type="button"

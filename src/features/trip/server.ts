@@ -13,8 +13,8 @@ import {
   listActivitiesForUser,
   updateParticipant,
 } from "@/lib/data";
-import { autoAssign } from "@/lib/matching";
-import type { TripMember } from "@/lib/types";
+import { optimizeAssignments, optimizeRouteOrder } from "@/lib/matching";
+import type { Trip, TripMember } from "@/lib/types";
 import { buildTripDashboardData, getDriverPassengers } from "./model";
 
 function ensureOrganizer(userId: string | null | undefined, organizerId: string | null) {
@@ -36,6 +36,69 @@ function ensureDriverCapacity(
   );
   if (currentPassengers.length >= driver.seats) {
     throw new Error("driver_full");
+  }
+}
+
+function isLocatableMember(
+  member: TripMember
+): member is TripMember & { location_lat: number; location_lng: number } {
+  return member.location_lat != null && member.location_lng != null;
+}
+
+function buildDriverOrderUpdates(
+  trip: Trip,
+  driver: TripMember,
+  members: TripMember[]
+) {
+  const passengers = getDriverPassengers(driver.id, members).filter(
+    (member) => member.has_car === 0
+  );
+  if (passengers.length === 0) return [];
+
+  if (!isLocatableMember(driver)) {
+    return passengers.map((passenger) => ({
+      passengerId: passenger.id,
+      driverId: driver.id,
+      pickupOrder: null,
+    }));
+  }
+
+  const locatablePassengers = passengers.filter(isLocatableMember);
+  const route = optimizeRouteOrder(
+    driver,
+    locatablePassengers,
+    trip.dest_lat,
+    trip.dest_lng
+  );
+  const orderMap = new Map(
+    route.orderedPassengerIds.map((passengerId, index) => [passengerId, index + 1])
+  );
+
+  return passengers.map((passenger) => ({
+    passengerId: passenger.id,
+    driverId: driver.id,
+    pickupOrder: orderMap.get(passenger.id) ?? null,
+  }));
+}
+
+async function recomputeDriverOrders(
+  trip: Trip,
+  members: TripMember[],
+  driverIds: Array<string | null | undefined>
+) {
+  const uniqueDriverIds = [...new Set(driverIds.filter(Boolean))] as string[];
+  if (uniqueDriverIds.length === 0) return;
+
+  const updates = uniqueDriverIds.flatMap((driverId) => {
+    const driver = members.find(
+      (member) => member.id === driverId && member.has_car === 1
+    );
+    if (!driver) return [];
+    return buildDriverOrderUpdates(trip, driver, members);
+  });
+
+  if (updates.length > 0) {
+    await bulkAssignRides(updates);
   }
 }
 
@@ -108,13 +171,13 @@ export async function autoAssignTrip(tripId: string, userId: string) {
 
   await clearAssignments(tripId);
   const members = await getParticipants(tripId);
-  const assignments = autoAssign(
+  const result = optimizeAssignments(
     members,
     dashboard.trip.dest_lat,
     dashboard.trip.dest_lng
   );
-  if (assignments.length > 0) {
-    await bulkAssignRides(assignments);
+  if (result.assignments.length > 0) {
+    await bulkAssignRides(result.assignments);
   }
 
   return getTripDashboard(tripId);
@@ -146,7 +209,13 @@ export async function setTripAssignment(input: {
     ensureDriverCapacity(input.driverMemberId, dashboard.members, passenger.id);
   }
 
-  await assignRide(passenger.id, input.driverMemberId);
+  const previousDriverId = passenger.assigned_driver;
+  await assignRide(passenger.id, input.driverMemberId, null);
+  const membersAfterUpdate = await getParticipants(input.tripId);
+  await recomputeDriverOrders(dashboard.trip, membersAfterUpdate, [
+    previousDriverId,
+    input.driverMemberId,
+  ]);
   return getTripDashboard(input.tripId);
 }
 

@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -68,6 +69,23 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
     [data, user]
   );
 
+  useEffect(() => {
+    if (!myMember) return;
+
+    setNickname(myMember.nickname || "");
+    setDeparture(
+      myMember.location_lat != null && myMember.location_lng != null
+        ? {
+            name: myMember.location_name || "已选择",
+            lat: myMember.location_lat,
+            lng: myMember.location_lng,
+          }
+        : null
+    );
+    setCanDrive(myMember.has_car === 1);
+    setSeats(myMember.has_car === 1 ? Math.max(myMember.seats || 1, 1) : 3);
+  }, [myMember]);
+
   async function submit() {
     if (!user || !data) return;
 
@@ -123,8 +141,8 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
         <p className="text-sm text-destructive">{error}</p>
-        <Button nativeButton={false} render={<Link href="/" />} variant="outline">
-          返回首页
+        <Button asChild variant="outline">
+          <Link href="/">返回首页</Link>
         </Button>
       </div>
     );
@@ -136,13 +154,10 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
     <div className="flex flex-1 flex-col bg-muted/20">
       <header className="border-b bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
-          <Button
-            nativeButton={false}
-            render={<Link href="/" />}
-            variant="ghost"
-            size="icon-sm"
-          >
-            <ArrowLeft className="size-4" />
+          <Button asChild variant="ghost" size="icon-sm">
+            <Link href="/">
+              <ArrowLeft className="size-4" />
+            </Link>
           </Button>
           <div className="flex items-center gap-2">
             <div className="flex size-10 items-center justify-center rounded-2xl bg-emerald-600 text-white">
@@ -195,14 +210,16 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
                 personMarkerTint={canDrive ? "green" : "red"}
               />
             </div>
-            <label className="flex items-center justify-between rounded-lg border px-3 py-3 text-sm">
-              <span>我可以开车</span>
-              <input
-                type="checkbox"
+            <div className="flex items-center justify-between rounded-lg border px-3 py-3 text-sm">
+              <Label htmlFor="join-can-drive" className="cursor-pointer">
+                我可以开车
+              </Label>
+              <Switch
+                id="join-can-drive"
                 checked={canDrive}
-                onChange={(event) => setCanDrive(event.target.checked)}
+                onCheckedChange={setCanDrive}
               />
-            </label>
+            </div>
             {canDrive ? (
               <div className="space-y-2">
                 <Label htmlFor="join-seats">可载人数</Label>

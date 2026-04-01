@@ -76,8 +76,10 @@ export function MyTripsPage() {
       <div className="flex flex-1 flex-col bg-muted/20">
         <header className="border-b bg-background/90 backdrop-blur">
           <div className="mx-auto flex max-w-4xl items-center gap-3 px-4 py-4">
-            <Button nativeButton={false} render={<Link href="/" />} variant="ghost" size="icon-sm">
-              <ArrowLeft className="size-4" />
+            <Button asChild variant="ghost" size="icon-sm">
+              <Link href="/">
+                <ArrowLeft className="size-4" />
+              </Link>
             </Button>
             <div>
               <div className="font-semibold">我的行程</div>
@@ -104,8 +106,10 @@ export function MyTripsPage() {
       <header className="border-b bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <Button nativeButton={false} render={<Link href="/" />} variant="ghost" size="icon-sm">
-              <ArrowLeft className="size-4" />
+            <Button asChild variant="ghost" size="icon-sm">
+              <Link href="/">
+                <ArrowLeft className="size-4" />
+              </Link>
             </Button>
             <div className="min-w-0">
               <div className="truncate font-semibold">我的行程</div>

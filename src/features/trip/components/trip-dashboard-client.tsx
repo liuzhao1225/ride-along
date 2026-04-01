@@ -8,12 +8,12 @@ import {
   Shuffle,
   LogOut,
   Copy,
-  Check,
   Car,
   Route,
   ClipboardList,
   UserRound,
 } from "lucide-react";
+import { toast } from "sonner";
 import { AMapProvider } from "@/components/amap-loader";
 import { DriverList } from "@/components/activity/driver-list";
 import { MyInfoPanel } from "@/components/activity/my-info-panel";
@@ -29,6 +29,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TripDashboardData } from "../types";
 import { getMyRide } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
@@ -43,7 +44,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
   const [pendingAssign, setPendingAssign] = useState(false);
   const [pendingLeave, setPendingLeave] = useState(false);
   const [pendingClose, setPendingClose] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [mobileSection, setMobileSection] = useState<"summary" | "assignments" | "mine">("mine");
 
   const refresh = useCallback(async () => {
@@ -97,8 +97,20 @@ function DashboardInner({ tripId }: { tripId: string }) {
     if (!data) return;
     setPendingAssign(true);
     try {
-      await fetch(`/api/trips/${data.trip.id}/auto-assign`, { method: "POST" });
-      await refresh();
+      const res = await fetch(`/api/trips/${data.trip.id}/auto-assign`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error((json as { error?: string }).error ?? "自动编组失败");
+        return;
+      }
+      const nextData = json as TripDashboardData;
+      setData(nextData);
+      setError(null);
+      toast.success(
+        `自动编组完成：${nextData.stats.assignedPassengers} 人已上车，${nextData.stats.unassignedPassengers} 人未分配`
+      );
     } finally {
       setPendingAssign(false);
     }
@@ -131,9 +143,12 @@ function DashboardInner({ tripId }: { tripId: string }) {
   }
 
   async function handleCopyInvite() {
-    await navigator.clipboard.writeText(`${window.location.origin}/t/${tripId}`);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/t/${tripId}`);
+      toast.success("邀请链接已复制");
+    } catch {
+      toast.error("复制失败，请手动复制链接");
+    }
   }
 
   if (loading || authLoading) {
@@ -148,8 +163,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">
         <p className="text-sm text-destructive">{error ?? "行程不存在"}</p>
-        <Button nativeButton={false} render={<Link href="/" />} variant="outline">
-          返回首页
+        <Button asChild variant="outline">
+          <Link href="/">返回首页</Link>
         </Button>
       </div>
     );
@@ -161,15 +176,16 @@ function DashboardInner({ tripId }: { tripId: string }) {
         <div className="mx-auto max-w-6xl px-4 py-3 sm:py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-2.5 sm:items-center sm:gap-3">
-            <Button
-              nativeButton={false}
-              render={<Link href="/" />}
-              variant="ghost"
-              size="icon-sm"
-              className="mt-0.5 shrink-0 sm:mt-0"
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
+              <Button
+                asChild
+                variant="ghost"
+                size="icon-sm"
+                className="mt-0.5 shrink-0 sm:mt-0"
+              >
+                <Link href="/">
+                  <ArrowLeft className="size-4" />
+                </Link>
+              </Button>
               <div className="min-w-0">
                 <div className="truncate text-xl font-semibold leading-tight sm:text-base">
                   {data.trip.name}
@@ -183,8 +199,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
               className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
               onClick={handleCopyInvite}
             >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              <span className="hidden sm:inline">{copied ? "已复制" : "复制邀请"}</span>
+              <Copy className="size-4" />
+              <span className="hidden sm:inline">复制邀请</span>
             </Button>
             {user ? (
               <Button
@@ -208,29 +224,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
       </header>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:py-6">
-        <div className="sm:hidden">
-          <div className="sticky top-0 z-10 rounded-2xl border bg-background/90 p-1 backdrop-blur">
-            <div className="grid grid-cols-3 gap-1">
-              {mobileTabs.map((tab) => {
-                const Icon = tab.icon;
-                const active = mobileSection === tab.key;
-                return (
-                  <Button
-                    key={tab.key}
-                    type="button"
-                    variant={active ? "default" : "ghost"}
-                    className="h-auto flex-col gap-1 rounded-xl py-2 text-xs"
-                    onClick={() => setMobileSection(tab.key)}
-                  >
-                    <Icon className="size-4" />
-                    {tab.label}
-                  </Button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
         <div className="hidden sm:block">
           <TripSummaryCard data={data} />
         </div>
@@ -258,6 +251,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
               </CardHeader>
               <CardContent className="space-y-5">
                 <DriverList
+                  activity={data.trip}
                   participants={data.members}
                   currentUserId={user?.id}
                   activityId={data.trip.id}
@@ -266,6 +260,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   interactionsDisabled={isClosed}
                 />
                 <UnassignedList
+                  activity={data.trip}
                   participants={data.members}
                   currentUserId={user?.id}
                   activityId={data.trip.id}
@@ -341,12 +336,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   <CardTitle>我的资料</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Button
-                    nativeButton={false}
-                    render={<Link href={`/t/${data.trip.id}`} />}
-                    className="w-full"
-                  >
-                    去邀请页加入并填写资料
+                  <Button asChild className="w-full">
+                    <Link href={`/t/${data.trip.id}`}>去邀请页加入并填写资料</Link>
                   </Button>
                 </CardContent>
               </Card>
@@ -376,8 +367,26 @@ function DashboardInner({ tripId }: { tripId: string }) {
         </section>
 
         <section className="space-y-4 sm:hidden">
-          {mobileSection === "summary" ? (
-            <>
+          <Tabs value={mobileSection} onValueChange={(value) => setMobileSection(value as typeof mobileSection)}>
+            <div className="sticky top-0 z-10 rounded-2xl border bg-background/90 p-1 backdrop-blur">
+              <TabsList className="grid h-auto w-full grid-cols-3 gap-1 bg-transparent p-0">
+                {mobileTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <TabsTrigger
+                      key={tab.key}
+                      value={tab.key}
+                      className="flex h-auto flex-col gap-1 rounded-xl py-2 text-xs data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                    >
+                      <Icon className="size-4" />
+                      {tab.label}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
+
+            <TabsContent value="summary" className="space-y-4">
               <TripSummaryCard data={data} compact />
               <Card>
                 <CardHeader>
@@ -421,11 +430,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   )}
                 </CardContent>
               </Card>
-            </>
-          ) : null}
+            </TabsContent>
 
-          {mobileSection === "assignments" ? (
-            <Card>
+            <TabsContent value="assignments" className="space-y-4">
+              <Card>
               <CardHeader className="flex flex-col gap-4">
                 <div>
                   <CardTitle>编组结果</CardTitle>
@@ -444,6 +452,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
               </CardHeader>
               <CardContent className="space-y-5">
                 <DriverList
+                  activity={data.trip}
                   participants={data.members}
                   currentUserId={user?.id}
                   activityId={data.trip.id}
@@ -452,6 +461,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   interactionsDisabled={isClosed}
                 />
                 <UnassignedList
+                  activity={data.trip}
                   participants={data.members}
                   currentUserId={user?.id}
                   activityId={data.trip.id}
@@ -460,11 +470,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   interactionsDisabled={isClosed}
                 />
               </CardContent>
-            </Card>
-          ) : null}
+              </Card>
+            </TabsContent>
 
-          {mobileSection === "mine" ? (
-            <>
+            <TabsContent value="mine" className="space-y-4">
               {myMember ? (
                 <MyInfoPanel
                   participant={myMember}
@@ -483,12 +492,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
                     <CardTitle>我的资料</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <Button
-                      nativeButton={false}
-                      render={<Link href={`/t/${data.trip.id}`} />}
-                      className="w-full"
-                    >
-                      去邀请页加入并填写资料
+                    <Button asChild className="w-full">
+                      <Link href={`/t/${data.trip.id}`}>去邀请页加入并填写资料</Link>
                     </Button>
                   </CardContent>
                 </Card>
@@ -512,8 +517,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   </CardContent>
                 </Card>
               ) : null}
-            </>
-          ) : null}
+            </TabsContent>
+          </Tabs>
         </section>
       </main>
 
