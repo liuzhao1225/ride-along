@@ -1,9 +1,9 @@
 /** 有车 / 已上车 */
-export const MAP_DOT_GREEN = "#22c55e";
+export const MAP_DOT_GREEN = "#8fcf9f";
 /** 未上车乘客 */
 export const MAP_DOT_RED = "#ef4444";
 export const MAP_DOT_NEUTRAL = "#64748b";
-export const MAP_STAR_YELLOW = "#facc15";
+export const MAP_STAR_GREEN = "#22c55e";
 export const MAP_STAR_SCREEN_PX = 24;
 
 /**

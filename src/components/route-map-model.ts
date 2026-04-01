@@ -133,3 +133,52 @@ export function buildRouteStops(
     [destinationLng, destinationLat] as [number, number],
   ];
 }
+
+function getParticipantCenter(participant?: Participant | null) {
+  if (participant?.location_lat == null || participant.location_lng == null) {
+    return null;
+  }
+
+  return [participant.location_lng, participant.location_lat] as [number, number];
+}
+
+export function getInitialMapCenter(input: {
+  view: RouteMapView;
+  participants: Participant[];
+  currentUserId?: string;
+  destinationLat: number;
+  destinationLng: number;
+}) {
+  const { view, participants, currentUserId, destinationLat, destinationLng } = input;
+  const destinationCenter = [destinationLng, destinationLat] as [number, number];
+  const currentUserParticipant =
+    currentUserId == null
+      ? undefined
+      : participants.find((participant) => participant.user_id === currentUserId);
+
+  const currentUserCenter = getParticipantCenter(currentUserParticipant);
+  if (currentUserCenter) {
+    return currentUserCenter;
+  }
+
+  if (view.kind === "driver_preview" || view.kind === "driver") {
+    return getParticipantCenter(view.driver) ?? destinationCenter;
+  }
+
+  if (view.kind === "passenger_ride") {
+    return getParticipantCenter(view.passenger) ?? getParticipantCenter(view.driver) ?? destinationCenter;
+  }
+
+  if (view.kind === "passenger_waiting") {
+    return getParticipantCenter(view.me) ?? destinationCenter;
+  }
+
+  if (view.kind === "participants_preview") {
+    return (
+      getParticipantCenter(view.participants.find((participant) => participant.location_lat != null)) ??
+      destinationCenter
+    );
+  }
+
+  return destinationCenter;
+}

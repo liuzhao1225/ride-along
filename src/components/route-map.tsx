@@ -14,12 +14,13 @@ import {
   mapDotMarkerOffsetPx,
   MAP_DOT_SCREEN_PX,
   MAP_STAR_SCREEN_PX,
-  MAP_STAR_YELLOW,
+  MAP_STAR_GREEN,
 } from "@/lib/amap-dot-style";
 import {
   buildRouteMapHint,
   buildRouteStops,
   getDisplayPassengersForDriver,
+  getInitialMapCenter,
   getPassengerRideIndex,
   resolveRouteMapView,
 } from "./route-map-model";
@@ -56,6 +57,8 @@ export function RouteMap({
   const userAdjustedViewRef = useRef(false);
   /** 程序化 setFitView 也会触发 zoom/move 事件，用此标记忽略 */
   const programmaticFitRef = useRef(false);
+  /** 已执行过全览后，不再因重新渲染把视角拉回初始中心点 */
+  const hasFitViewRef = useRef(false);
   const prevActivityIdRef = useRef<string | null>(null);
   const participantsWithPreview = useMemo(
     () =>
@@ -88,6 +91,23 @@ export function RouteMap({
     view.kind === "participants_preview" ? view.participants : null;
 
   const effectiveCurrentUserId = currentUserId ?? myParticipant?.user_id;
+  const initialMapCenter = useMemo(
+    () =>
+      getInitialMapCenter({
+        view,
+        participants: participantsWithPreview,
+        currentUserId: effectiveCurrentUserId,
+        destinationLat: activity.dest_lat,
+        destinationLng: activity.dest_lng,
+      }),
+    [
+      activity.dest_lat,
+      activity.dest_lng,
+      effectiveCurrentUserId,
+      participantsWithPreview,
+      view,
+    ]
+  );
 
   const clearOverlays = useCallback(() => {
     for (const o of overlaysRef.current) {
@@ -104,6 +124,7 @@ export function RouteMap({
       if (userAdjustedViewRef.current) return;
       if (mapRef.current !== map) return;
       if (map && overlaysRef.current.length > 0) {
+        hasFitViewRef.current = true;
         programmaticFitRef.current = true;
         map.setFitView(overlaysRef.current, false, [40, 40, 40, 40]);
         window.setTimeout(() => {
@@ -116,6 +137,7 @@ export function RouteMap({
   const handleFitViewClick = useCallback(() => {
     const map = mapRef.current;
     if (!map || overlaysRef.current.length === 0) return;
+    hasFitViewRef.current = true;
     programmaticFitRef.current = true;
     map.setFitView(overlaysRef.current, false, [40, 40, 40, 40]);
     window.setTimeout(() => {
@@ -134,7 +156,7 @@ export function RouteMap({
       if (!AMap) return;
       const color =
         markerStyle === "star"
-          ? MAP_STAR_YELLOW
+          ? MAP_STAR_GREEN
           : kind === "green"
             ? MAP_DOT_GREEN
             : MAP_DOT_RED;
@@ -354,12 +376,13 @@ export function RouteMap({
     if (prevActivityIdRef.current !== activity.id) {
       prevActivityIdRef.current = activity.id;
       userAdjustedViewRef.current = false;
+      hasFitViewRef.current = false;
     }
 
     if (!mapRef.current) {
       mapRef.current = new AMap.Map(containerRef.current, {
         zoom: 12,
-        center: [activity.dest_lng, activity.dest_lat],
+        center: initialMapCenter,
       });
       const map = mapRef.current;
       const markUserAdjusted = () => {
@@ -368,10 +391,12 @@ export function RouteMap({
       };
       map.on("zoomend", markUserAdjusted);
       map.on("moveend", markUserAdjusted);
+    } else if (!userAdjustedViewRef.current && !hasFitViewRef.current) {
+      mapRef.current.setCenter(initialMapCenter);
     }
 
     drawRoutes();
-  }, [loaded, AMap, activity.id, activity.dest_lat, activity.dest_lng, drawRoutes]);
+  }, [loaded, AMap, activity.id, drawRoutes, initialMapCenter]);
 
   const hint = useMemo(() => buildRouteMapHint(view, myParticipant), [view, myParticipant]);
 
