@@ -494,6 +494,9 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   <CardTitle>编组结果</CardTitle>
                   <CardDescription>手机端单独一栏查看车辆与待安排成员。</CardDescription>
                 </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {renderAssignmentsContent()}
                 {myMember ? (
                   <Button
                     onClick={() => void handleAutoAssign()}
@@ -504,9 +507,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
                     {pendingAssign ? "编组中..." : "自动编组"}
                   </Button>
                 ) : null}
-              </CardHeader>
-              <CardContent className="space-y-5">
-                {renderAssignmentsContent()}
               </CardContent>
               </Card>
             </TabsContent>

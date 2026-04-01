@@ -27,6 +27,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
   const router = useRouter();
   const { user, loading, supabase } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
+  const [submitAfterAuth, setSubmitAfterAuth] = useState(false);
   const [pending, setPending] = useState(false);
   const [data, setData] = useState<TripDashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +65,13 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
       );
     }
   }, [user, nickname]);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      setSubmitAfterAuth(false);
+      setShowAuth(true);
+    }
+  }, [loading, user]);
 
   const myMember = useMemo(
     () => data?.members.find((member) => member.user_id === user?.id),
@@ -271,6 +279,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
                 if (user) {
                   void submit();
                 } else {
+                  setSubmitAfterAuth(true);
                   setShowAuth(true);
                 }
               }}
@@ -289,11 +298,19 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
 
       <PasswordAuthDialog
         open={showAuth}
-        onOpenChange={setShowAuth}
+        onOpenChange={(open) => {
+          setShowAuth(open);
+          if (!open) {
+            setSubmitAfterAuth(false);
+          }
+        }}
         supabase={supabase}
         onAuthSuccess={() => {
           setShowAuth(false);
-          void submit();
+          if (submitAfterAuth) {
+            setSubmitAfterAuth(false);
+            void submit();
+          }
         }}
       />
     </div>
