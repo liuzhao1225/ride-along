@@ -10,11 +10,16 @@ import {
   MAP_DOT_GREEN,
   MAP_DOT_RED,
   createPersonDotElement,
+  createPersonStarElement,
   mapDotMarkerOffsetPx,
+  MAP_DOT_SCREEN_PX,
+  MAP_STAR_SCREEN_PX,
+  MAP_STAR_YELLOW,
 } from "@/lib/amap-dot-style";
 
 const ROUTE_LINE = "#1677ff";
 const DEST_DOT = "#f5222d";
+const ROUTE_LINE_MUTED = "#94a3b8";
 
 interface RouteMapProps {
   activity: Activity;
@@ -22,6 +27,7 @@ interface RouteMapProps {
   myParticipant?: Participant;
   previewDriver?: Participant;
   previewParticipants?: Participant[];
+  currentUserId?: string;
   heightClassName?: string;
 }
 
@@ -31,17 +37,28 @@ export function RouteMap({
   myParticipant,
   previewDriver,
   previewParticipants,
+  currentUserId,
   heightClassName,
 }: RouteMapProps) {
   const { loaded, AMap } = useAMap();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
+  const drawRequestIdRef = useRef(0);
   /** 用户手动缩放/拖动后不再自动 setFitView，避免轮询重绘把视野拉回全局 */
   const userAdjustedViewRef = useRef(false);
   /** 程序化 setFitView 也会触发 zoom/move 事件，用此标记忽略 */
   const programmaticFitRef = useRef(false);
   const prevActivityIdRef = useRef<string | null>(null);
+  const participantsWithPreview = useMemo(
+    () =>
+      myParticipant
+        ? participants.map((participant) =>
+            participant.id === myParticipant.id ? myParticipant : participant
+          )
+        : participants,
+    [participants, myParticipant]
+  );
 
   const view = useMemo(() => {
     if (previewDriver) {
@@ -60,16 +77,16 @@ export function RouteMap({
       return { kind: "driver" as const, driver: myParticipant };
     }
     if (myParticipant.assigned_driver) {
-      const driver = participants.find(
+      const driver = participantsWithPreview.find(
         (p) => p.id === myParticipant.assigned_driver
       );
       if (driver) {
-        return { kind: "passenger_ride" as const, driver };
+        return { kind: "passenger_ride" as const, driver, passenger: myParticipant };
       }
       return { kind: "passenger_ride_missing_driver" as const };
     }
     return { kind: "passenger_waiting" as const, me: myParticipant };
-  }, [myParticipant, participants, previewDriver, previewParticipants]);
+  }, [myParticipant, participantsWithPreview, previewDriver, previewParticipants]);
 
   const activeDriver =
     view.kind === "passenger_waiting" ||
@@ -81,6 +98,8 @@ export function RouteMap({
   const waitingParticipant = view.kind === "passenger_waiting" ? view.me : null;
   const previewMembers =
     view.kind === "participants_preview" ? view.participants : null;
+
+  const effectiveCurrentUserId = currentUserId ?? myParticipant?.user_id;
 
   const clearOverlays = useCallback(() => {
     for (const o of overlaysRef.current) {
@@ -117,11 +136,27 @@ export function RouteMap({
   }, []);
 
   const addPersonDot = useCallback(
-    (map: any, lng: number, lat: number, kind: "green" | "red") => {
+    (
+      map: any,
+      lng: number,
+      lat: number,
+      kind: "green" | "red",
+      markerStyle: "dot" | "star" = "dot"
+    ) => {
       if (!AMap) return;
-      const color = kind === "green" ? MAP_DOT_GREEN : MAP_DOT_RED;
-      const el = createPersonDotElement(color);
-      const [ox, oy] = mapDotMarkerOffsetPx();
+      const color =
+        markerStyle === "star"
+          ? MAP_STAR_YELLOW
+          : kind === "green"
+            ? MAP_DOT_GREEN
+            : MAP_DOT_RED;
+      const el =
+        markerStyle === "star"
+          ? createPersonStarElement(color)
+          : createPersonDotElement(color);
+      const [ox, oy] = mapDotMarkerOffsetPx(
+        markerStyle === "star" ? MAP_STAR_SCREEN_PX : MAP_DOT_SCREEN_PX
+      );
       const marker = new AMap.Marker({
         position: [lng, lat],
         map,
@@ -131,6 +166,72 @@ export function RouteMap({
       overlaysRef.current.push(marker);
     },
     [AMap]
+  );
+
+  const getMarkerStyle = useCallback(
+    (participant?: Pick<Participant, "user_id"> | null) =>
+      participant?.user_id != null && participant.user_id === effectiveCurrentUserId
+        ? "star"
+        : "dot",
+    [effectiveCurrentUserId]
+  );
+
+  const drawPathSegments = useCallback(
+    (
+      map: any,
+      requestId: number,
+      segments: Array<{
+        start: [number, number];
+        end: [number, number];
+        color: string;
+      }>
+    ) => {
+      if (!AMap || segments.length === 0) {
+        fitMapIfNeeded(map, 300);
+        return;
+      }
+
+      let remaining = segments.length;
+      for (const segment of segments) {
+        const driving = new AMap.Driving({
+          map: null,
+          policy: 0,
+        });
+
+        driving.search(
+          new AMap.LngLat(segment.start[0], segment.start[1]),
+          new AMap.LngLat(segment.end[0], segment.end[1]),
+          (_status: string, result: any) => {
+            if (drawRequestIdRef.current !== requestId || mapRef.current !== map) {
+              return;
+            }
+
+            if (result?.routes?.length > 0) {
+              const path: any[] = [];
+              for (const step of result.routes[0].steps ?? []) {
+                path.push(...step.path);
+              }
+              if (path.length > 0) {
+                const polyline = new AMap.Polyline({
+                  path,
+                  strokeColor: segment.color,
+                  strokeWeight: 5,
+                  strokeOpacity: 0.8,
+                  map,
+                });
+                overlaysRef.current.push(polyline);
+              }
+            }
+
+            remaining -= 1;
+            if (remaining === 0) {
+              fitMapIfNeeded(map, 500);
+            }
+          }
+        );
+      }
+    },
+    [AMap, fitMapIfNeeded]
   );
 
   const addDestDot = useCallback(
@@ -152,6 +253,8 @@ export function RouteMap({
   // routeDataSig 已编码地图相关数据；不把 activity/participants 引用放进 deps，避免父级轮询导致反复 clear+fit
   const drawRoutes = useCallback(() => {
     if (!AMap || !mapRef.current) return;
+    const requestId = drawRequestIdRef.current + 1;
+    drawRequestIdRef.current = requestId;
     clearOverlays();
     const map = mapRef.current;
 
@@ -166,7 +269,13 @@ export function RouteMap({
       const me = waitingParticipant;
       if (!me) return;
       if (me.location_lat != null && me.location_lng != null) {
-        addPersonDot(map, me.location_lng, me.location_lat, "red");
+        addPersonDot(
+          map,
+          me.location_lng,
+          me.location_lat,
+          "red",
+          getMarkerStyle(me)
+        );
       }
       fitMapIfNeeded(map, 300);
       return;
@@ -179,7 +288,8 @@ export function RouteMap({
             map,
             participant.location_lng,
             participant.location_lat,
-            "red"
+            "red",
+            getMarkerStyle(participant)
           );
         }
       }
@@ -195,9 +305,15 @@ export function RouteMap({
       return;
     }
 
-    addPersonDot(map, driver.location_lng, driver.location_lat, "green");
+    addPersonDot(
+      map,
+      driver.location_lng,
+      driver.location_lat,
+      "green",
+      getMarkerStyle(driver)
+    );
 
-    const passengers = participants
+    const passengers = participantsWithPreview
       .filter((p) => p.assigned_driver === driver.id && p.location_lat != null)
       .sort((left, right) => {
         const leftOrder = left.pickup_order ?? Number.MAX_SAFE_INTEGER;
@@ -207,42 +323,36 @@ export function RouteMap({
       });
 
     for (const p of passengers) {
-      addPersonDot(map, p.location_lng!, p.location_lat!, "green");
+      addPersonDot(
+        map,
+        p.location_lng!,
+        p.location_lat!,
+        "green",
+        getMarkerStyle(p)
+      );
     }
 
-    const waypoints = passengers
-      .filter((p) => p.location_lng != null)
-      .map((p) => new AMap.LngLat(p.location_lng!, p.location_lat!));
+    const passengerRideIndex =
+      view.kind === "passenger_ride"
+        ? passengers.findIndex((p) => p.id === view.passenger.id)
+        : -1;
 
-    const driving = new AMap.Driving({
-      map: null,
-      policy: 0,
-    });
+    const stops: Array<[number, number]> = [
+      [driver.location_lng, driver.location_lat],
+      ...passengers.map((p) => [p.location_lng!, p.location_lat!] as [number, number]),
+      [activity.dest_lng, activity.dest_lat],
+    ];
 
-    driving.search(
-      new AMap.LngLat(driver.location_lng, driver.location_lat),
-      new AMap.LngLat(activity.dest_lng, activity.dest_lat),
-      { waypoints },
-      (status: string, result: any) => {
-        if (status === "complete" && result.routes?.length > 0) {
-          const route = result.routes[0];
-          const path: any[] = [];
-          for (const step of route.steps) {
-            path.push(...step.path);
-          }
-          const polyline = new AMap.Polyline({
-            path,
-            strokeColor: ROUTE_LINE,
-            strokeWeight: 5,
-            strokeOpacity: 0.8,
-            map,
-          });
-          overlaysRef.current.push(polyline);
-        }
-      }
-    );
+    const segments = stops.slice(0, -1).map((start, index) => ({
+      start,
+      end: stops[index + 1],
+      color:
+        passengerRideIndex >= 0 && index < passengerRideIndex
+          ? ROUTE_LINE_MUTED
+          : ROUTE_LINE,
+    }));
 
-    fitMapIfNeeded(map, 500);
+    drawPathSegments(map, requestId, segments);
   }, [
     AMap,
     activity.dest_lat,
@@ -250,9 +360,11 @@ export function RouteMap({
     clearOverlays,
     addDestDot,
     addPersonDot,
+    drawPathSegments,
     fitMapIfNeeded,
-    participants,
-    view.kind,
+    getMarkerStyle,
+    participantsWithPreview,
+    view,
     activeDriver,
     waitingParticipant,
     previewMembers,

@@ -18,6 +18,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { RouteMap } from "@/components/route-map";
+import { cn } from "@/lib/utils";
 import type { Activity, Participant } from "@/lib/types";
 
 export function DriverList({
@@ -39,6 +40,16 @@ export function DriverList({
   interactionsDisabled?: boolean;
 }) {
   const drivers = participants.filter((p) => p.has_car);
+  const myMember = useMemo(
+    () => participants.find((participant) => participant.user_id === currentUserId),
+    [participants, currentUserId]
+  );
+  const myDriverId =
+    myMember == null
+      ? null
+      : myMember.has_car
+        ? myMember.id
+        : myMember.assigned_driver;
   const [expandedDriverIds, setExpandedDriverIds] = useState<string[]>([]);
   const [pendingPassengerId, setPendingPassengerId] = useState<string | null>(
     null
@@ -72,6 +83,15 @@ export function DriverList({
     () => participants.filter((p) => !p.has_car && !p.assigned_driver),
     [participants]
   );
+  const orderedDrivers = useMemo(() => {
+    if (!myDriverId) return drivers;
+
+    return [...drivers].sort((left, right) => {
+      if (left.id === myDriverId) return -1;
+      if (right.id === myDriverId) return 1;
+      return 0;
+    });
+  }, [drivers, myDriverId]);
 
   if (drivers.length === 0) {
     return (
@@ -131,20 +151,26 @@ export function DriverList({
         <Car className="size-4" />
         车辆编组
       </h3>
-      {drivers.map((driver) => {
+      {orderedDrivers.map((driver) => {
         const passengers = passengersByDriver.get(driver.id) ?? [];
         const availableSeats = Math.max(driver.seats - passengers.length, 0);
         const occupiedSeats = 1 + passengers.length;
         const totalSeats = 1 + driver.seats;
         const expanded = expandedDriverIds.includes(driver.id);
         const fullyBooked = availableSeats <= 0;
+        const isMyGroup = myDriverId != null && driver.id === myDriverId;
         const eligibleUnassignedPassengers = unassignedPassengers.filter(
           (passenger) =>
             canManageAllAssignments || passenger.user_id === currentUserId
         );
 
         return (
-          <Card key={driver.id}>
+          <Card
+            key={driver.id}
+            className={cn(
+              isMyGroup && "border-emerald-200 bg-emerald-50/70"
+            )}
+          >
             <CardContent className="py-3">
               <button
                 type="button"
@@ -180,6 +206,7 @@ export function DriverList({
                       activity={activity}
                       participants={participants}
                       previewDriver={driver}
+                      currentUserId={currentUserId}
                       heightClassName="h-48 sm:h-64"
                     />
                   </div>

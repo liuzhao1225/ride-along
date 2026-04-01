@@ -11,6 +11,7 @@ import {
   joinActivity,
   leaveActivity,
   listActivitiesForUser,
+  updateActivity,
   updateParticipant,
 } from "@/lib/data";
 import { optimizeAssignments, optimizeRouteOrder } from "@/lib/matching";
@@ -131,6 +132,33 @@ export async function getTripDashboard(tripId: string) {
   if (!trip) return null;
   const members = await getParticipants(tripId);
   return buildTripDashboardData(trip, members);
+}
+
+export async function updateTrip(input: {
+  tripId: string;
+  userId: string;
+  updates: {
+    title?: string;
+    destinationName?: string;
+    destinationLat?: number;
+    destinationLng?: number;
+    tripDateIso?: string | null;
+  };
+}) {
+  const trip = await getActivity(input.tripId);
+  if (!trip) throw new Error("trip_not_found");
+  if (trip.created_by !== input.userId) throw new Error("forbidden");
+  if (isActivityDisbanded(trip)) throw new Error("trip_closed");
+
+  await updateActivity(input.tripId, input.userId, {
+    name: input.updates.title,
+    dest_name: input.updates.destinationName,
+    dest_lat: input.updates.destinationLat,
+    dest_lng: input.updates.destinationLng,
+    event_at: input.updates.tripDateIso,
+  });
+
+  return getTripDashboard(input.tripId);
 }
 
 export async function listTripsForUser(userId: string) {

@@ -88,6 +88,40 @@ export async function createActivity(
   return mapActivity(data as Record<string, unknown>);
 }
 
+export async function updateActivity(
+  activityId: string,
+  userId: string,
+  updates: {
+    name?: string;
+    dest_name?: string;
+    dest_lat?: number;
+    dest_lng?: number;
+    event_at?: string | null;
+  }
+): Promise<Trip> {
+  const supabase = createAdminClient();
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value !== undefined) {
+      payload[key] = value;
+    }
+  }
+
+  const { data, error } = await supabase
+    .from(ACT)
+    .update(payload)
+    .eq("id", activityId)
+    .eq("created_by", userId)
+    .select()
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error("forbidden");
+  }
+  return mapActivity(data as Record<string, unknown>);
+}
+
 /** 仅创建者可解散；已解散则幂等成功 */
 export async function disbandActivity(
   activityId: string,

@@ -17,6 +17,15 @@ export function eventDateInputToIso(dateStr: string): string | null {
   return d.toISOString();
 }
 
+export function activitySecondsToDateInput(seconds: number | null): string {
+  if (seconds == null) return "";
+  const d = new Date(seconds * 1000);
+  if (Number.isNaN(d.getTime())) return "";
+  const offsetMs = 8 * 60 * 60 * 1000;
+  const cst = new Date(d.getTime() + offsetMs);
+  return cst.toISOString().slice(0, 10);
+}
+
 /** 明日日期字符串 YYYY-MM-DD（本地日历日） */
 export function defaultEventDateInput(): string {
   const d = new Date();

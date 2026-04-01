@@ -61,6 +61,16 @@ function DashboardInner({ tripId }: { tripId: string }) {
     }
   }, [tripId]);
 
+  const handleDataUpdated = useCallback((nextData?: TripDashboardData) => {
+    if (nextData) {
+      setData(nextData);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    void refresh();
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     const interval = window.setInterval(() => void refresh(), 5000);
@@ -76,6 +86,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
     () => getMyRide(myMember, data?.members ?? []),
     [myMember, data]
   );
+  const isMyUnassigned =
+    myMember != null &&
+    myMember.has_car === 0 &&
+    myMember.assigned_driver == null;
 
   const isOrganizer = user?.id != null && data?.trip.created_by === user.id;
   const isClosed = data?.status === "closed";
@@ -148,6 +162,47 @@ function DashboardInner({ tripId }: { tripId: string }) {
     } catch {
       toast.error("复制失败，请手动复制链接");
     }
+  }
+
+  function renderAssignmentsContent() {
+    if (!data) return null;
+
+    const driverList = (
+      <DriverList
+        activity={data.trip}
+        participants={data.members}
+        currentUserId={user?.id}
+        activityId={data.trip.id}
+        onUpdated={refresh}
+        canManageAllAssignments={Boolean(isOrganizer)}
+        interactionsDisabled={isClosed}
+      />
+    );
+
+    const unassignedList = (
+      <UnassignedList
+        activity={data.trip}
+        participants={data.members}
+        currentUserId={user?.id}
+        highlighted={Boolean(isMyUnassigned)}
+        activityId={data.trip.id}
+        onUpdated={refresh}
+        canManageAllAssignments={Boolean(isOrganizer)}
+        interactionsDisabled={isClosed}
+      />
+    );
+
+    return isMyUnassigned ? (
+      <>
+        {unassignedList}
+        {driverList}
+      </>
+    ) : (
+      <>
+        {driverList}
+        {unassignedList}
+      </>
+    );
   }
 
   useEffect(() => {
@@ -237,7 +292,11 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:py-6">
         <div className="hidden sm:block">
-          <TripSummaryCard data={data} />
+          <TripSummaryCard
+            data={data}
+            editable={Boolean(isOrganizer)}
+            onUpdated={handleDataUpdated}
+          />
         </div>
 
         <section className="hidden gap-6 xl:grid xl:grid-cols-[1.15fr_0.85fr]">
@@ -262,24 +321,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-5">
-                <DriverList
-                  activity={data.trip}
-                  participants={data.members}
-                  currentUserId={user?.id}
-                  activityId={data.trip.id}
-                  onUpdated={refresh}
-                  canManageAllAssignments={Boolean(isOrganizer)}
-                  interactionsDisabled={isClosed}
-                />
-                <UnassignedList
-                  activity={data.trip}
-                  participants={data.members}
-                  currentUserId={user?.id}
-                  activityId={data.trip.id}
-                  onUpdated={refresh}
-                  canManageAllAssignments={Boolean(isOrganizer)}
-                  interactionsDisabled={isClosed}
-                />
+                {renderAssignmentsContent()}
               </CardContent>
             </Card>
 
@@ -381,7 +423,12 @@ function DashboardInner({ tripId }: { tripId: string }) {
             </div>
 
             <TabsContent value="summary" className="space-y-4">
-              <TripSummaryCard data={data} compact />
+              <TripSummaryCard
+                data={data}
+                compact
+                editable={Boolean(isOrganizer)}
+                onUpdated={handleDataUpdated}
+              />
               <Card>
                 <CardHeader>
                   <CardTitle>我的乘车结果</CardTitle>
@@ -445,24 +492,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 ) : null}
               </CardHeader>
               <CardContent className="space-y-5">
-                <DriverList
-                  activity={data.trip}
-                  participants={data.members}
-                  currentUserId={user?.id}
-                  activityId={data.trip.id}
-                  onUpdated={refresh}
-                  canManageAllAssignments={Boolean(isOrganizer)}
-                  interactionsDisabled={isClosed}
-                />
-                <UnassignedList
-                  activity={data.trip}
-                  participants={data.members}
-                  currentUserId={user?.id}
-                  activityId={data.trip.id}
-                  onUpdated={refresh}
-                  canManageAllAssignments={Boolean(isOrganizer)}
-                  interactionsDisabled={isClosed}
-                />
+                {renderAssignmentsContent()}
               </CardContent>
               </Card>
             </TabsContent>

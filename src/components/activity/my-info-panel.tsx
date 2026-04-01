@@ -204,6 +204,7 @@ export function MyInfoPanel({
               activity={activity}
               participants={participants}
               myParticipant={previewParticipant}
+              currentUserId={participant.user_id}
             />
           </div>
         )}

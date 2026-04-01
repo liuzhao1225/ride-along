@@ -13,12 +13,14 @@ import {
   LogIn,
 } from "lucide-react";
 import { RouteMap } from "@/components/route-map";
+import { cn } from "@/lib/utils";
 import type { Activity, Participant } from "@/lib/types";
 
 export function UnassignedList({
   activity,
   participants,
   currentUserId,
+  highlighted = false,
   activityId,
   onUpdated,
   canManageAllAssignments = false,
@@ -27,6 +29,7 @@ export function UnassignedList({
   activity: Activity;
   participants: Participant[];
   currentUserId?: string;
+  highlighted?: boolean;
   activityId: string;
   onUpdated: () => void;
   canManageAllAssignments?: boolean;
@@ -71,7 +74,11 @@ export function UnassignedList({
 
   return (
     <div className="space-y-3">
-      <Card>
+      <Card
+        className={cn(
+          highlighted && "border-emerald-200 bg-emerald-50/70"
+        )}
+      >
         <CardContent className="py-3">
           <button
             type="button"
@@ -104,6 +111,7 @@ export function UnassignedList({
                     activity={activity}
                     participants={participants}
                     previewParticipants={unassigned}
+                    currentUserId={currentUserId}
                     heightClassName="h-48 sm:h-64"
                   />
                 </div>
