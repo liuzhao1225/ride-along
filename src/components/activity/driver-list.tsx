@@ -284,78 +284,76 @@ export function DriverList({
                     )}
                   </div>
 
-                  {eligibleUnassignedPassengers.length > 0 ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-medium">上下车编辑</div>
-                        {fullyBooked ? (
-                          <span className="text-xs text-muted-foreground">
-                            已满座，需先让乘客下车
-                          </span>
-                        ) : null}
-                      </div>
-
-                      {eligibleUnassignedPassengers.length > 0 ? (
-                        <div className="space-y-2">
-                          {eligibleUnassignedPassengers.map((passenger) => {
-                            const pending = pendingPassengerId === passenger.id;
-                            return (
-                              <div
-                                key={passenger.id}
-                                className="flex items-center justify-between gap-3 rounded-xl border border-dashed bg-background px-3 py-2"
-                              >
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 text-sm">
-                                    <UserRound className="size-3.5" />
-                                    <span className="truncate">
-                                      {passenger.nickname}
-                                    </span>
-                                    {passenger.user_id === currentUserId ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-[10px] px-1"
-                                      >
-                                        我
-                                      </Badge>
-                                    ) : null}
-                                    {!passenger.is_free_agent ? (
-                                      <Badge
-                                        variant="secondary"
-                                        className="text-[10px] px-1"
-                                      >
-                                        手动下车
-                                      </Badge>
-                                    ) : null}
-                                  </div>
-                                  <p className="mt-1 text-xs text-muted-foreground">
-                                    {passenger.location_name ?? "未设置出发地"}
-                                  </p>
-                                </div>
-
-                                <Button
-                                  variant="outline"
-                                  size="xs"
-                                  disabled={
-                                    interactionsDisabled || fullyBooked || pending
-                                  }
-                                  onClick={() =>
-                                    void handleBoard(passenger.id, driver.id)
-                                  }
-                                >
-                                  <LogIn className="size-3" />
-                                  {pending ? "处理中..." : "上车"}
-                                </Button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          当前没有你可操作的待安排成员。
-                        </p>
-                      )}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-sm font-medium">上下车编辑</div>
+                      {fullyBooked ? (
+                        <span className="text-xs text-muted-foreground">
+                          已满座，需先让乘客下车
+                        </span>
+                      ) : null}
                     </div>
-                  ) : null}
+
+                    {eligibleUnassignedPassengers.length > 0 ? (
+                    <div className="space-y-2">
+                      {eligibleUnassignedPassengers.map((passenger) => {
+                        const pending = pendingPassengerId === passenger.id;
+                        return (
+                          <div
+                            key={passenger.id}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-dashed bg-background px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 text-sm">
+                                <UserRound className="size-3.5" />
+                                <span className="truncate">
+                                  {passenger.nickname}
+                                </span>
+                                {passenger.user_id === currentUserId ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] px-1"
+                                  >
+                                    我
+                                  </Badge>
+                                ) : null}
+                                {!passenger.is_free_agent ? (
+                                  <Badge
+                                    variant="secondary"
+                                    className="text-[10px] px-1"
+                                  >
+                                    手动下车
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {passenger.location_name ?? "未设置出发地"}
+                              </p>
+                            </div>
+
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              disabled={
+                                interactionsDisabled || fullyBooked || pending
+                              }
+                              onClick={() =>
+                                void handleBoard(passenger.id, driver.id)
+                              }
+                            >
+                              <LogIn className="size-3" />
+                              {pending ? "处理中..." : "上车"}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        当前没有你可操作的待安排成员。
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : null}
             </CardContent>
