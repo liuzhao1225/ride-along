@@ -50,6 +50,8 @@ export interface Database {
           has_car: number;
           seats: number;
           assigned_driver: string | null;
+          pickup_order: number | null;
+          is_free_agent: boolean;
           created_at: string;
         };
         Insert: {
@@ -63,6 +65,8 @@ export interface Database {
           has_car?: number;
           seats?: number;
           assigned_driver?: string | null;
+          pickup_order?: number | null;
+          is_free_agent?: boolean;
         };
         Update: {
           nickname?: string;
@@ -72,6 +76,8 @@ export interface Database {
           has_car?: number;
           seats?: number;
           assigned_driver?: string | null;
+          pickup_order?: number | null;
+          is_free_agent?: boolean;
         };
         Relationships: [];
       };

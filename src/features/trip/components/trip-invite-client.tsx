@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Car, LogIn, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import { AMapProvider } from "@/components/amap-loader";
 import { LocationPicker, type Location } from "@/components/location-picker";
 import { PasswordAuthDialog } from "@/components/password-auth-dialog";
@@ -68,6 +69,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
     () => data?.members.find((member) => member.user_id === user?.id),
     [data, user]
   );
+  const profileComplete = departure != null;
 
   useEffect(() => {
     if (!myMember) return;
@@ -88,6 +90,10 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
 
   async function submit() {
     if (!user || !data) return;
+    if (!departure) {
+      setError("请先填写出发地");
+      return;
+    }
 
     setPending(true);
     setError(null);
@@ -120,6 +126,21 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
       const profileJson = await profileRes.json().catch(() => ({}));
       if (!profileRes.ok) {
         setError((profileJson as { error?: string }).error ?? "保存失败");
+        return;
+      }
+
+      toast.success("资料已保存");
+
+      const autoAssignRes = await fetch(`/api/trips/${data.trip.id}/auto-assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlock_self: false }),
+      });
+      const autoAssignJson = await autoAssignRes.json().catch(() => ({}));
+      if (!autoAssignRes.ok) {
+        setError(
+          (autoAssignJson as { error?: string }).error ?? "自动编组失败"
+        );
         return;
       }
 
@@ -180,10 +201,10 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <LogIn className="size-4" />
-              {myMember ? "你已加入该行程" : "确认加入"}
+              {myMember ? "补全资料后进入行程" : "确认加入"}
             </CardTitle>
             <CardDescription>
-              资料越完整，发起人越容易生成可执行的编组结果。
+              必须先填写出发地，才能进入行程控制台。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -245,7 +266,7 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
 
             <Button
               className="w-full bg-emerald-600 text-white hover:bg-emerald-600/90"
-              disabled={pending}
+              disabled={pending || !profileComplete}
               onClick={() => {
                 if (user) {
                   void submit();
@@ -257,6 +278,11 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
               {pending ? "提交中..." : myMember ? "保存并进入控制台" : "加入并进入控制台"}
               <ArrowRight className="size-4" />
             </Button>
+            {!profileComplete ? (
+              <p className="text-xs text-muted-foreground">
+                请选择你的出发地后再继续。
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       </main>

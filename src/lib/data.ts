@@ -52,6 +52,8 @@ function mapParticipant(row: Record<string, unknown>): TripMember {
     assigned_driver: (row.assigned_driver as string) ?? null,
     pickup_order:
       row.pickup_order != null ? Number(row.pickup_order) : null,
+    is_free_agent:
+      row.is_free_agent == null ? true : Boolean(row.is_free_agent),
     created_at: ts(row.created_at as string),
   };
 }
@@ -208,6 +210,7 @@ export async function joinActivity(
       activity_id: activityId,
       user_id: userId,
       nickname,
+      is_free_agent: true,
     })
     .select()
     .single();
@@ -241,6 +244,7 @@ export async function updateParticipant(
     seats?: number;
     nickname?: string;
     pickup_order?: number | null;
+    is_free_agent?: boolean;
   }
 ): Promise<TripMember | null> {
   const supabase = createAdminClient();
@@ -274,12 +278,20 @@ export async function updateParticipant(
 export async function assignRide(
   passengerId: string,
   driverId: string | null,
-  pickupOrder: number | null = null
+  pickupOrder: number | null = null,
+  isFreeAgent?: boolean
 ): Promise<void> {
   const supabase = createAdminClient();
+  const payload: Record<string, unknown> = {
+    assigned_driver: driverId,
+    pickup_order: pickupOrder,
+  };
+  if (isFreeAgent !== undefined) {
+    payload.is_free_agent = isFreeAgent;
+  }
   const { error } = await supabase
     .from(PART)
-    .update({ assigned_driver: driverId, pickup_order: pickupOrder })
+    .update(payload)
     .eq("id", passengerId);
 
   if (error) throw error;
@@ -302,13 +314,16 @@ export async function bulkAssignRides(
   }
 }
 
-export async function clearAssignments(activityId: string): Promise<void> {
+export async function clearAutoAssignableAssignments(
+  activityId: string
+): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from(PART)
     .update({ assigned_driver: null, pickup_order: null })
     .eq("activity_id", activityId)
-    .eq("has_car", 0);
+    .eq("has_car", 0)
+    .eq("is_free_agent", true);
 
   if (error) throw error;
 }

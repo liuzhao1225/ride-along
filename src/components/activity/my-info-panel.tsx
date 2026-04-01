@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -24,8 +25,8 @@ export function MyInfoPanel({
   activity,
   participants,
   isOrganizer = false,
-  disbanding = false,
-  onCloseTrip,
+  destructivePending = false,
+  onDestructiveAction,
 }: {
   participant: Participant;
   activityId: string;
@@ -34,8 +35,8 @@ export function MyInfoPanel({
   activity: Activity;
   participants: Participant[];
   isOrganizer?: boolean;
-  disbanding?: boolean;
-  onCloseTrip?: (() => Promise<void> | void);
+  destructivePending?: boolean;
+  onDestructiveAction?: (() => Promise<void> | void);
 }) {
   const [location, setLocation] = useState<Location | null>(
     participant.location_lat != null
@@ -75,6 +76,10 @@ export function MyInfoPanel({
   ]);
 
   async function handleSave() {
+    if (!location) {
+      setError("请先填写出发地");
+      return;
+    }
     setError(null);
     setSaving(true);
     try {
@@ -96,10 +101,30 @@ export function MyInfoPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) {
-        setError("保存失败");
+        setError(json.error ?? "保存失败");
         return;
       }
+
+      toast.success("资料已保存");
+
+      const autoAssignRes = await fetch(`/api/trips/${activityId}/auto-assign`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlock_self: false }),
+      });
+      const autoAssignJson = (await autoAssignRes
+        .json()
+        .catch(() => ({}))) as { error?: string };
+      if (!autoAssignRes.ok) {
+        setError(autoAssignJson.error ?? "自动编组失败");
+        toast.error("资料已保存，但自动编组失败");
+        onUpdated();
+        return;
+      }
+
+      toast.success("自动编组已刷新");
       onUpdated();
     } finally {
       setSaving(false);
@@ -228,23 +253,34 @@ export function MyInfoPanel({
         <Button
           className="w-full"
           onClick={handleSave}
-          disabled={disbanded || saving}
+          disabled={disbanded || saving || !location}
         >
           {saving ? "保存中…" : "保存"}
         </Button>
+        {!location && !disbanded ? (
+          <p className="text-xs text-muted-foreground">
+            必须先填写出发地，才能保存资料。
+          </p>
+        ) : null}
 
-        {isOrganizer && !disbanded && onCloseTrip && (
+        {!disbanded && onDestructiveAction && (
           <>
             <Separator />
             <Button
               type="button"
-              variant="destructive"
-              className="w-full"
+              variant="outline"
+              className="w-full border-destructive/20 bg-destructive/5 text-destructive hover:bg-destructive/10 hover:text-destructive"
               size="sm"
-              disabled={disbanding}
-              onClick={() => void onCloseTrip()}
+              disabled={destructivePending}
+              onClick={() => void onDestructiveAction()}
             >
-              {disbanding ? "关闭中…" : "关闭行程"}
+              {destructivePending
+                ? isOrganizer
+                  ? "关闭中…"
+                  : "退出中…"
+                : isOrganizer
+                  ? "关闭行程"
+                  : "退出行程"}
             </Button>
           </>
         )}

@@ -18,7 +18,6 @@ import { AMapProvider } from "@/components/amap-loader";
 import { DriverList } from "@/components/activity/driver-list";
 import { MyInfoPanel } from "@/components/activity/my-info-panel";
 import { UnassignedList } from "@/components/activity/unassigned-list";
-import { PasswordAuthDialog } from "@/components/password-auth-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +30,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TripDashboardData } from "../types";
-import { getMyRide } from "../model";
+import { getMyRide, isTripProfileComplete } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
 
 function DashboardInner({ tripId }: { tripId: string }) {
@@ -40,7 +39,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
   const [data, setData] = useState<TripDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showAuth, setShowAuth] = useState(false);
   const [pendingAssign, setPendingAssign] = useState(false);
   const [pendingLeave, setPendingLeave] = useState(false);
   const [pendingClose, setPendingClose] = useState(false);
@@ -69,12 +67,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      setShowAuth(true);
-    }
-  }, [authLoading, user]);
-
   const myMember = useMemo(
     () => data?.members.find((member) => member.user_id === user?.id),
     [data, user]
@@ -87,6 +79,11 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   const isOrganizer = user?.id != null && data?.trip.created_by === user.id;
   const isClosed = data?.status === "closed";
+  const needsProfileCompletion =
+    !authLoading &&
+    !loading &&
+    data != null &&
+    (!user || !myMember || !isTripProfileComplete(myMember));
   const mobileTabs = [
     { key: "summary" as const, label: "摘要", icon: ClipboardList },
     { key: "assignments" as const, label: "编组", icon: Route },
@@ -99,6 +96,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
     try {
       const res = await fetch(`/api/trips/${data.trip.id}/auto-assign`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ unlock_self: true }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -151,6 +150,11 @@ function DashboardInner({ tripId }: { tripId: string }) {
     }
   }
 
+  useEffect(() => {
+    if (!needsProfileCompletion || !data) return;
+    router.replace(`/t/${data.trip.id}?from=dashboard`);
+  }, [data, needsProfileCompletion, router]);
+
   if (loading || authLoading) {
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -166,6 +170,14 @@ function DashboardInner({ tripId }: { tripId: string }) {
         <Button asChild variant="outline">
           <Link href="/">返回首页</Link>
         </Button>
+      </div>
+    );
+  }
+
+  if (needsProfileCompletion) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
+        正在跳转到资料填写页...
       </div>
     );
   }
@@ -235,10 +247,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 <div>
                   <CardTitle>编组结果</CardTitle>
                   <CardDescription>
-                    由发起人统一执行自动编组并做微调。
+                    保存资料会触发自动编组；你也可以随时重新编排。
                   </CardDescription>
                 </div>
-                {isOrganizer ? (
+                {myMember ? (
                   <Button
                     onClick={() => void handleAutoAssign()}
                     disabled={pendingAssign || isClosed}
@@ -256,7 +268,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   currentUserId={user?.id}
                   activityId={data.trip.id}
                   onUpdated={refresh}
-                  canManageAssignments={Boolean(isOrganizer)}
+                  canManageAllAssignments={Boolean(isOrganizer)}
                   interactionsDisabled={isClosed}
                 />
                 <UnassignedList
@@ -265,7 +277,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   currentUserId={user?.id}
                   activityId={data.trip.id}
                   onUpdated={refresh}
-                  canManageAssignments={Boolean(isOrganizer)}
+                  canManageAllAssignments={Boolean(isOrganizer)}
                   interactionsDisabled={isClosed}
                 />
               </CardContent>
@@ -309,7 +321,9 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   <div className="rounded-xl border border-dashed bg-background px-4 py-3">
                     <div className="font-medium">你暂时还未分配车辆</div>
                     <p className="mt-1 text-muted-foreground">
-                      先把自己的出发地和是否开车填写完整，发起人再统一编组。
+                      {myMember.is_free_agent
+                        ? "先把自己的出发地和是否开车填写完整，系统会自动重新编组。"
+                        : "你当前处于手动下车状态，点击自动编组后会重新作为自由人参与编排。"}
                     </p>
                   </div>
                 )}
@@ -327,8 +341,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 activity={data.trip}
                 participants={data.members}
                 isOrganizer={Boolean(isOrganizer)}
-                disbanding={pendingClose}
-                onCloseTrip={handleCloseTrip}
+                destructivePending={isOrganizer ? pendingClose : pendingLeave}
+                onDestructiveAction={isOrganizer ? handleCloseTrip : handleLeave}
               />
             ) : (
               <Card>
@@ -343,26 +357,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
               </Card>
             )}
 
-            {!isOrganizer && myMember ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>退出行程</CardTitle>
-                  <CardDescription>
-                    普通成员可以退出；发起人只能关闭整趟行程。
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    disabled={pendingLeave || isClosed}
-                    onClick={() => void handleLeave()}
-                  >
-                    {pendingLeave ? "退出中..." : "退出这趟行程"}
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : null}
           </div>
         </section>
 
@@ -424,7 +418,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                     <div className="rounded-xl border border-dashed bg-background px-4 py-3">
                       <div className="font-medium">你暂时还未分配车辆</div>
                       <p className="mt-1 text-muted-foreground">
-                        先把自己的出发地和是否开车填写完整，发起人再统一编组。
+                        先把自己的出发地和是否开车填写完整，系统会自动重新编组。
                       </p>
                     </div>
                   )}
@@ -439,7 +433,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   <CardTitle>编组结果</CardTitle>
                   <CardDescription>手机端单独一栏查看车辆与待安排成员。</CardDescription>
                 </div>
-                {isOrganizer ? (
+                {myMember ? (
                   <Button
                     onClick={() => void handleAutoAssign()}
                     disabled={pendingAssign || isClosed}
@@ -457,7 +451,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   currentUserId={user?.id}
                   activityId={data.trip.id}
                   onUpdated={refresh}
-                  canManageAssignments={Boolean(isOrganizer)}
+                  canManageAllAssignments={Boolean(isOrganizer)}
                   interactionsDisabled={isClosed}
                 />
                 <UnassignedList
@@ -466,7 +460,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   currentUserId={user?.id}
                   activityId={data.trip.id}
                   onUpdated={refresh}
-                  canManageAssignments={Boolean(isOrganizer)}
+                  canManageAllAssignments={Boolean(isOrganizer)}
                   interactionsDisabled={isClosed}
                 />
               </CardContent>
@@ -483,8 +477,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
                   activity={data.trip}
                   participants={data.members}
                   isOrganizer={Boolean(isOrganizer)}
-                  disbanding={pendingClose}
-                  onCloseTrip={handleCloseTrip}
+                  destructivePending={isOrganizer ? pendingClose : pendingLeave}
+                  onDestructiveAction={isOrganizer ? handleCloseTrip : handleLeave}
                 />
               ) : (
                 <Card>
@@ -499,34 +493,10 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 </Card>
               )}
 
-              {!isOrganizer && myMember ? (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>退出行程</CardTitle>
-                    <CardDescription>普通成员可以退出；发起人只能关闭整趟行程。</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      disabled={pendingLeave || isClosed}
-                      onClick={() => void handleLeave()}
-                    >
-                      {pendingLeave ? "退出中..." : "退出这趟行程"}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : null}
             </TabsContent>
           </Tabs>
         </section>
       </main>
-
-      <PasswordAuthDialog
-        open={showAuth}
-        onOpenChange={setShowAuth}
-        supabase={supabase}
-      />
     </div>
   );
 }

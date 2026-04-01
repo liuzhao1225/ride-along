@@ -2,7 +2,7 @@ import { getAuthenticatedUser } from "@/lib/auth-server";
 import { autoAssignTrip } from "@/features/trip/server";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   ctx: RouteContext<"/api/trips/[tripId]/auto-assign">
 ) {
   const user = await getAuthenticatedUser();
@@ -11,8 +11,13 @@ export async function POST(
   }
 
   const { tripId } = await ctx.params;
+  const body = await request.json().catch(() => ({}));
   try {
-    const data = await autoAssignTrip(tripId, user.id);
+    const data = await autoAssignTrip({
+      tripId,
+      userId: user.id,
+      releaseSelf: body.unlock_self !== false,
+    });
     return Response.json(data);
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
@@ -20,7 +25,7 @@ export async function POST(
       return Response.json({ error: "行程不存在" }, { status: 404 });
     }
     if (message === "forbidden") {
-      return Response.json({ error: "仅发起人可执行自动编组" }, { status: 403 });
+      return Response.json({ error: "请先加入行程" }, { status: 403 });
     }
     if (message === "trip_closed") {
       return Response.json({ error: "行程已关闭" }, { status: 410 });

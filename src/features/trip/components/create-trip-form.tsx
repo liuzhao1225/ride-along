@@ -71,7 +71,7 @@ export function CreateTripForm() {
         }),
       });
 
-      router.push(`/trips/${data.trip.id}`);
+      router.push(`/t/${data.trip.id}`);
     } finally {
       setPending(false);
     }

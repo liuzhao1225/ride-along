@@ -38,6 +38,9 @@ export async function PATCH(
     if (message === "member_not_found") {
       return Response.json({ error: "请先加入行程" }, { status: 404 });
     }
+    if (message === "location_required") {
+      return Response.json({ error: "请先填写出发地" }, { status: 400 });
+    }
     console.error(error);
     return Response.json({ error: "保存失败" }, { status: 500 });
   }

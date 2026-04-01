@@ -273,6 +273,20 @@ export function optimizeAssignments(
   destLat: number,
   destLng: number
 ): AssignmentOptimizationResult {
+  const lockedPassengerCountByDriver = new Map<string, number>();
+  for (const participant of participants) {
+    if (
+      participant.has_car === 0 &&
+      !participant.is_free_agent &&
+      participant.assigned_driver != null
+    ) {
+      lockedPassengerCountByDriver.set(
+        participant.assigned_driver,
+        (lockedPassengerCountByDriver.get(participant.assigned_driver) ?? 0) + 1
+      );
+    }
+  }
+
   const drivers: DriverNode[] = participants
     .filter(
       (participant): participant is LocatableParticipant =>
@@ -285,7 +299,10 @@ export function optimizeAssignments(
       id: driver.id,
       lat: driver.location_lat,
       lng: driver.location_lng,
-      seats: driver.seats,
+      seats: Math.max(
+        driver.seats - (lockedPassengerCountByDriver.get(driver.id) ?? 0),
+        0
+      ),
       directToDest: haversine(
         driver.location_lat,
         driver.location_lng,
@@ -298,6 +315,7 @@ export function optimizeAssignments(
     .filter(
       (participant): participant is LocatableParticipant =>
         participant.has_car === 0 &&
+        participant.is_free_agent &&
         participant.assigned_driver == null &&
         participant.location_lat != null &&
         participant.location_lng != null

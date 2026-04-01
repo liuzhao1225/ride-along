@@ -1,7 +1,7 @@
 import {
   assignRide,
   bulkAssignRides,
-  clearAssignments,
+  clearAutoAssignableAssignments,
   createActivity,
   disbandActivity,
   getActivity,
@@ -15,7 +15,11 @@ import {
 } from "@/lib/data";
 import { optimizeAssignments, optimizeRouteOrder } from "@/lib/matching";
 import type { Trip, TripMember } from "@/lib/types";
-import { buildTripDashboardData, getDriverPassengers } from "./model";
+import {
+  buildTripDashboardData,
+  getDriverPassengers,
+  isTripProfileComplete,
+} from "./model";
 
 function ensureOrganizer(userId: string | null | undefined, organizerId: string | null) {
   return Boolean(userId && organizerId && userId === organizerId);
@@ -156,20 +160,42 @@ export async function updateMyTripProfile(input: {
   const members = await getParticipants(input.tripId);
   const mine = members.find((member) => member.user_id === input.userId);
   if (!mine) throw new Error("member_not_found");
+  const mergedProfile = {
+    ...mine,
+    ...input.updates,
+  };
+  if (!isTripProfileComplete(mergedProfile)) {
+    throw new Error("location_required");
+  }
   return updateParticipant(mine.id, input.updates);
 }
 
-export async function autoAssignTrip(tripId: string, userId: string) {
+export async function autoAssignTrip(input: {
+  tripId: string;
+  userId: string;
+  releaseSelf?: boolean;
+}) {
+  const { tripId, userId, releaseSelf = true } = input;
   const dashboard = await getTripDashboard(tripId);
   if (!dashboard) throw new Error("trip_not_found");
-  if (!ensureOrganizer(userId, dashboard.trip.created_by)) {
-    throw new Error("forbidden");
-  }
   if (isActivityDisbanded(dashboard.trip)) {
     throw new Error("trip_closed");
   }
 
-  await clearAssignments(tripId);
+  const currentMember = dashboard.members.find((member) => member.user_id === userId);
+  if (!currentMember) {
+    throw new Error("forbidden");
+  }
+
+  if (
+    releaseSelf &&
+    currentMember.has_car === 0 &&
+    !currentMember.is_free_agent
+  ) {
+    await updateParticipant(currentMember.id, { is_free_agent: true });
+  }
+
+  await clearAutoAssignableAssignments(tripId);
   const members = await getParticipants(tripId);
   const result = optimizeAssignments(
     members,
@@ -180,22 +206,36 @@ export async function autoAssignTrip(tripId: string, userId: string) {
     await bulkAssignRides(result.assignments);
   }
 
+  const membersAfterAssignments = await getParticipants(tripId);
+  await recomputeDriverOrders(
+    dashboard.trip,
+    membersAfterAssignments,
+    membersAfterAssignments
+      .filter((member) => member.has_car === 1)
+      .map((member) => member.id)
+  );
+
   return getTripDashboard(tripId);
 }
 
 export async function setTripAssignment(input: {
   tripId: string;
-  organizerUserId: string;
+  actorUserId: string;
   passengerMemberId: string;
   driverMemberId: string | null;
 }) {
   const dashboard = await getTripDashboard(input.tripId);
   if (!dashboard) throw new Error("trip_not_found");
-  if (!ensureOrganizer(input.organizerUserId, dashboard.trip.created_by)) {
-    throw new Error("forbidden");
-  }
   if (isActivityDisbanded(dashboard.trip)) {
     throw new Error("trip_closed");
+  }
+
+  const actorMember = dashboard.members.find(
+    (member) => member.user_id === input.actorUserId
+  );
+  const isOrganizer = ensureOrganizer(input.actorUserId, dashboard.trip.created_by);
+  if (!isOrganizer && !actorMember) {
+    throw new Error("forbidden");
   }
 
   const passenger = dashboard.members.find(
@@ -205,12 +245,31 @@ export async function setTripAssignment(input: {
     throw new Error("invalid_passenger");
   }
 
+  const previousDriverId = passenger.assigned_driver;
+  const isSelfAction = passenger.user_id === input.actorUserId;
+  const isDriverOwnerRemoving =
+    input.driverMemberId == null &&
+    actorMember?.has_car === 1 &&
+    previousDriverId === actorMember.id;
+
+  if (!isOrganizer && !isSelfAction && !isDriverOwnerRemoving) {
+    throw new Error("forbidden");
+  }
+
+  if (input.driverMemberId != null && !isOrganizer && !isSelfAction) {
+    throw new Error("forbidden");
+  }
+
   if (input.driverMemberId != null) {
     ensureDriverCapacity(input.driverMemberId, dashboard.members, passenger.id);
   }
 
-  const previousDriverId = passenger.assigned_driver;
-  await assignRide(passenger.id, input.driverMemberId, null);
+  await assignRide(
+    passenger.id,
+    input.driverMemberId,
+    null,
+    isSelfAction ? false : undefined
+  );
   const membersAfterUpdate = await getParticipants(input.tripId);
   await recomputeDriverOrders(dashboard.trip, membersAfterUpdate, [
     previousDriverId,

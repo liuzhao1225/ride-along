@@ -26,7 +26,7 @@ export function DriverList({
   currentUserId,
   activityId,
   onUpdated,
-  canManageAssignments = false,
+  canManageAllAssignments = false,
   interactionsDisabled = false,
 }: {
   activity: Activity;
@@ -34,7 +34,7 @@ export function DriverList({
   currentUserId?: string;
   activityId: string;
   onUpdated: () => void;
-  canManageAssignments?: boolean;
+  canManageAllAssignments?: boolean;
   /** 活动已解散等场景下禁止上下车操作 */
   interactionsDisabled?: boolean;
 }) {
@@ -134,8 +134,14 @@ export function DriverList({
       {drivers.map((driver) => {
         const passengers = passengersByDriver.get(driver.id) ?? [];
         const availableSeats = Math.max(driver.seats - passengers.length, 0);
+        const occupiedSeats = 1 + passengers.length;
+        const totalSeats = 1 + driver.seats;
         const expanded = expandedDriverIds.includes(driver.id);
         const fullyBooked = availableSeats <= 0;
+        const eligibleUnassignedPassengers = unassignedPassengers.filter(
+          (passenger) =>
+            canManageAllAssignments || passenger.user_id === currentUserId
+        );
 
         return (
           <Card key={driver.id}>
@@ -153,7 +159,7 @@ export function DriverList({
                   <Badge
                     variant={availableSeats > 0 ? "outline" : "secondary"}
                   >
-                    {passengers.length}/{driver.seats} 座
+                    {occupiedSeats}/{totalSeats} 座
                   </Badge>
                   {expanded ? (
                     <ChevronUp className="size-4 text-muted-foreground" />
@@ -240,13 +246,23 @@ export function DriverList({
                                       我
                                     </Badge>
                                   ) : null}
+                                  {!passenger.is_free_agent ? (
+                                    <Badge
+                                      variant="secondary"
+                                      className="text-[10px] px-1"
+                                    >
+                                      手动锁定
+                                    </Badge>
+                                  ) : null}
                                 </div>
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   {passenger.location_name ?? "未设置出发地"}
                                 </p>
                               </div>
 
-                              {canManageAssignments ? (
+                              {canManageAllAssignments ||
+                              passenger.user_id === currentUserId ||
+                              driver.user_id === currentUserId ? (
                                 <Button
                                   variant="ghost"
                                   size="xs"
@@ -268,7 +284,7 @@ export function DriverList({
                     )}
                   </div>
 
-                  {canManageAssignments ? (
+                  {eligibleUnassignedPassengers.length > 0 ? (
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-3">
                         <div className="text-sm font-medium">上下车编辑</div>
@@ -279,9 +295,9 @@ export function DriverList({
                         ) : null}
                       </div>
 
-                      {unassignedPassengers.length > 0 ? (
+                      {eligibleUnassignedPassengers.length > 0 ? (
                         <div className="space-y-2">
-                          {unassignedPassengers.map((passenger) => {
+                          {eligibleUnassignedPassengers.map((passenger) => {
                             const pending = pendingPassengerId === passenger.id;
                             return (
                               <div
@@ -300,6 +316,14 @@ export function DriverList({
                                         className="text-[10px] px-1"
                                       >
                                         我
+                                      </Badge>
+                                    ) : null}
+                                    {!passenger.is_free_agent ? (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-[10px] px-1"
+                                      >
+                                        手动下车
                                       </Badge>
                                     ) : null}
                                   </div>
@@ -327,7 +351,7 @@ export function DriverList({
                         </div>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          当前没有待安排成员。
+                          当前没有你可操作的待安排成员。
                         </p>
                       )}
                     </div>

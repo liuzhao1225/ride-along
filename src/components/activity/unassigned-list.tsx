@@ -21,7 +21,7 @@ export function UnassignedList({
   currentUserId,
   activityId,
   onUpdated,
-  canManageAssignments = false,
+  canManageAllAssignments = false,
   interactionsDisabled = false,
 }: {
   activity: Activity;
@@ -29,7 +29,7 @@ export function UnassignedList({
   currentUserId?: string;
   activityId: string;
   onUpdated: () => void;
-  canManageAssignments?: boolean;
+  canManageAllAssignments?: boolean;
   interactionsDisabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -119,9 +119,13 @@ export function UnassignedList({
                   <div className="space-y-2">
                     {unassigned.map((passenger) => {
                       const isMe = passenger.user_id === currentUserId;
+                      const canBoardThisPassenger =
+                        canManageAllAssignments || isMe;
                       const pending = pendingPassengerId === passenger.id;
                       const reason =
-                        passenger.location_lat == null
+                        !passenger.is_free_agent
+                          ? "已手动下车，自动编组会跳过"
+                          : passenger.location_lat == null
                           ? "未设置位置"
                           : drivers.length === 0
                             ? "暂无司机"
@@ -146,6 +150,14 @@ export function UnassignedList({
                                   我
                                 </Badge>
                               ) : null}
+                              {!passenger.is_free_agent ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] px-1"
+                                >
+                                  手动下车
+                                </Badge>
+                              ) : null}
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {(passenger.location_name ?? "未设置出发地") +
@@ -153,7 +165,7 @@ export function UnassignedList({
                             </p>
                           </div>
 
-                          {drivers.length > 0 && canManageAssignments ? (
+                          {drivers.length > 0 && canBoardThisPassenger ? (
                             <div className="flex flex-wrap gap-2">
                               {drivers.map((driver) => {
                                 const passengerCount = participants.filter(
@@ -182,7 +194,11 @@ export function UnassignedList({
                             <p className="text-xs text-muted-foreground">
                               {drivers.length === 0
                                 ? "当前还没有可分配的车辆。"
-                                : "只有发起人可以调整上下车。"}
+                                : canManageAllAssignments
+                                  ? "当前没有可用座位。"
+                                  : isMe
+                                    ? "你可以给自己选择车辆。"
+                                    : "该成员需要自己选择车辆。"}
                             </p>
                           )}
                         </div>

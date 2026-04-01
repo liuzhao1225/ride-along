@@ -1,6 +1,23 @@
 import type { TripMember, Trip } from "@/lib/types";
 import type { TripDashboardData, TripStats, TripStatus } from "./types";
 
+export function isTripProfileComplete(
+  member:
+    | Pick<TripMember, "location_lat" | "location_lng">
+    | null
+    | undefined
+) {
+  return member?.location_lat != null && member.location_lng != null;
+}
+
+export function isAutoAssignablePassenger(member: TripMember) {
+  return (
+    member.has_car === 0 &&
+    member.is_free_agent &&
+    isTripProfileComplete(member)
+  );
+}
+
 export function getTripStatus(trip: Trip, members: TripMember[]): TripStatus {
   if (trip.disbanded_at != null) return "closed";
   const hasAssignments = members.some((member) => member.assigned_driver != null);
@@ -16,9 +33,8 @@ export function getTripStats(members: TripMember[]): TripStats {
 
   return {
     totalMembers: members.length,
-    completedProfiles: members.filter(
-      (member) => member.location_lat != null && member.location_lng != null
-    ).length,
+    completedProfiles: members.filter((member) => isTripProfileComplete(member))
+      .length,
     drivers: drivers.length,
     availableSeats: drivers.reduce((sum, driver) => sum + driver.seats, 0),
     assignedPassengers,

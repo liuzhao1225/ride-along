@@ -16,7 +16,7 @@ export async function PATCH(
   try {
     const data = await setTripAssignment({
       tripId,
-      organizerUserId: user.id,
+      actorUserId: user.id,
       passengerMemberId: memberId,
       driverMemberId:
         typeof body.driver_member_id === "string" ? body.driver_member_id : null,
@@ -28,7 +28,7 @@ export async function PATCH(
       return Response.json({ error: "行程不存在" }, { status: 404 });
     }
     if (message === "forbidden") {
-      return Response.json({ error: "仅发起人可调整编组" }, { status: 403 });
+      return Response.json({ error: "你没有权限调整该成员" }, { status: 403 });
     }
     if (message === "trip_closed") {
       return Response.json({ error: "行程已关闭" }, { status: 410 });

@@ -27,6 +27,7 @@ export interface TripMember {
   seats: number;
   assigned_driver: string | null;
   pickup_order: number | null;
+  is_free_agent: boolean;
   created_at: number;
 }
 
