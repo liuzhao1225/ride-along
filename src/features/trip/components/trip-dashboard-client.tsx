@@ -28,6 +28,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TripDashboardData } from "../types";
 import { getMyRide, isTripProfileComplete } from "../model";
@@ -43,6 +51,8 @@ function DashboardInner({ tripId }: { tripId: string }) {
   const [pendingAssign, setPendingAssign] = useState(false);
   const [pendingLeave, setPendingLeave] = useState(false);
   const [pendingClose, setPendingClose] = useState(false);
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
+  const [pendingLogout, setPendingLogout] = useState(false);
   const [mobileSection, setMobileSection] = useState<"summary" | "assignments" | "mine">("mine");
 
   const refresh = useCallback(async () => {
@@ -162,11 +172,13 @@ function DashboardInner({ tripId }: { tripId: string }) {
     const inviteLink = `${window.location.origin}/t/${tripId}`;
     const tripDate = formatActivityDateDisplay(data.trip.event_at) ?? "待定";
     const inviteText = [
-      `一起拼车：${data.trip.name}`,
-      `日期：${tripDate}`,
+      `一起去：${data.trip.name}`,
+      `时间：${tripDate}`,
       `目的地：${data.trip.dest_name}`,
       "",
-      "点开链接填写资料并加入：",
+      "点开链接填一下你的出发地，顺手选下能不能开车、还能带几个人，我这边好一起把车位和路线安排明白。",
+      "",
+      "加入这趟：",
       inviteLink,
     ].join("\n");
 
@@ -175,6 +187,16 @@ function DashboardInner({ tripId }: { tripId: string }) {
       toast.success("邀请文案已复制");
     } catch {
       toast.error("复制失败，请手动复制邀请内容");
+    }
+  }
+
+  async function handleLogout() {
+    setPendingLogout(true);
+    try {
+      await supabase.auth.signOut();
+      setLogoutDialogOpen(false);
+    } finally {
+      setPendingLogout(false);
     }
   }
 
@@ -288,7 +310,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 variant="ghost"
                 size="sm"
                 className="size-11 rounded-2xl p-0 sm:h-9 sm:w-auto sm:px-3"
-                onClick={() => supabase.auth.signOut()}
+                onClick={() => setLogoutDialogOpen(true)}
               >
                 <LogOut className="size-4" />
                 <span className="hidden sm:inline">退出</span>
@@ -541,6 +563,35 @@ function DashboardInner({ tripId }: { tripId: string }) {
           </Tabs>
         </section>
       </main>
+
+      <Dialog open={logoutDialogOpen} onOpenChange={setLogoutDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>确认退出登录？</DialogTitle>
+            <DialogDescription>
+              退出后需要重新登录才能继续查看和编辑你的行程信息。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLogoutDialogOpen(false)}
+              disabled={pendingLogout}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void handleLogout()}
+              disabled={pendingLogout}
+            >
+              {pendingLogout ? "退出中…" : "确认退出"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
