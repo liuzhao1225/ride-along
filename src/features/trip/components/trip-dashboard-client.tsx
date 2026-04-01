@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TripDashboardData } from "../types";
 import { getMyRide, isTripProfileComplete } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
+import { formatActivityDateDisplay } from "@/lib/activity-date";
 
 function DashboardInner({ tripId }: { tripId: string }) {
   const router = useRouter();
@@ -156,11 +157,24 @@ function DashboardInner({ tripId }: { tripId: string }) {
   }
 
   async function handleCopyInvite() {
+    if (!data) return;
+
+    const inviteLink = `${window.location.origin}/t/${tripId}`;
+    const tripDate = formatActivityDateDisplay(data.trip.event_at) ?? "待定";
+    const inviteText = [
+      `一起拼车：${data.trip.name}`,
+      `日期：${tripDate}`,
+      `目的地：${data.trip.dest_name}`,
+      "",
+      "点开链接填写资料并加入：",
+      inviteLink,
+    ].join("\n");
+
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/t/${tripId}`);
-      toast.success("邀请链接已复制");
+      await navigator.clipboard.writeText(inviteText);
+      toast.success("邀请文案已复制");
     } catch {
-      toast.error("复制失败，请手动复制链接");
+      toast.error("复制失败，请手动复制邀请内容");
     }
   }
 
