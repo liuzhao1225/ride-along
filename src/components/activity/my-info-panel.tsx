@@ -47,7 +47,9 @@ export function MyInfoPanel({
       : null
   );
   const [hasCar, setHasCar] = useState(!!participant.has_car);
-  const [seats, setSeats] = useState(participant.seats || 4);
+  const [seats, setSeats] = useState(
+    participant.has_car ? (participant.seats ?? 3) : 0
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +64,7 @@ export function MyInfoPanel({
         : null
     );
     setHasCar(!!participant.has_car);
-    setSeats(participant.seats || 4);
+    setSeats(participant.has_car ? (participant.seats ?? 3) : 0);
   }, [
     participant.id,
     participant.location_lat,
@@ -108,13 +110,13 @@ export function MyInfoPanel({
     setHasCar(checked);
     if (!checked) {
       setSeats(0);
-    } else if (seats < 1) {
-      setSeats(4);
+    } else if (seats < 0) {
+      setSeats(0);
     }
   }
 
   function handleSeatsChange(newSeats: number) {
-    if (newSeats < 1 || newSeats > 50) return;
+    if (newSeats < 0 || newSeats > 50) return;
     setSeats(newSeats);
   }
 
@@ -204,7 +206,7 @@ export function MyInfoPanel({
                 variant="outline"
                 size="icon-sm"
                 onClick={() => handleSeatsChange(seats - 1)}
-                disabled={disbanded || seats <= 1}
+                disabled={disbanded || seats <= 0}
               >
                 <Minus className="size-3" />
               </Button>

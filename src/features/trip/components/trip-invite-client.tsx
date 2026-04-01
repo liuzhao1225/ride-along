@@ -209,10 +209,17 @@ function InviteInner({ inviteCode }: { inviteCode: string }) {
                 <Input
                   id="join-seats"
                   type="number"
-                  min={1}
-                  max={8}
+                  min={0}
+                  max={50}
                   value={seats}
-                  onChange={(event) => setSeats(Number(event.target.value) || 1)}
+                  onChange={(event) => {
+                    const n = Number(event.target.value);
+                    setSeats(
+                      Number.isFinite(n)
+                        ? Math.min(50, Math.max(0, Math.trunc(n)))
+                        : 0
+                    );
+                  }}
                 />
               </div>
             ) : null}
