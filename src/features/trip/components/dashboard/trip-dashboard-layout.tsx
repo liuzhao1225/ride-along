@@ -15,23 +15,25 @@ export function TripDashboardLayout({
   onMobileSectionChange,
   renderSummarySection,
   renderMyRideSection,
-  renderAssignmentsSection,
+  renderDesktopAssignmentsSection,
+  renderMobileAssignmentsSection,
   renderMyProfileSection,
 }: {
   mobileSection: "summary" | "assignments" | "mine";
   onMobileSectionChange: (section: "summary" | "assignments" | "mine") => void;
   renderSummarySection: () => ReactNode;
   renderMyRideSection: () => ReactNode;
-  renderAssignmentsSection: () => ReactNode;
+  renderDesktopAssignmentsSection: () => ReactNode;
+  renderMobileAssignmentsSection: () => ReactNode;
   renderMyProfileSection: () => ReactNode;
 }) {
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-4 sm:gap-6 sm:py-6">
       <div className="hidden sm:block">{renderSummarySection()}</div>
 
-      <section className="hidden gap-6 xl:grid xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="hidden gap-6 sm:grid sm:grid-cols-1 xl:grid-cols-[1.15fr_0.85fr]">
         <div className="space-y-6">
-          {renderAssignmentsSection()}
+          {renderDesktopAssignmentsSection()}
           {renderMyRideSection()}
         </div>
 
@@ -64,7 +66,7 @@ export function TripDashboardLayout({
           </TabsContent>
 
           <TabsContent value="assignments" className="space-y-4">
-            {renderAssignmentsSection()}
+            {renderMobileAssignmentsSection()}
           </TabsContent>
 
           <TabsContent value="mine" className="space-y-4">

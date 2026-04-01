@@ -21,6 +21,7 @@ export function AssignmentSection({
   interactionsDisabled,
   autoAssignPending,
   showAutoAssign,
+  autoAssignPlacement = "header",
   highlightUnassigned,
   onAutoAssign,
   onUpdated,
@@ -32,6 +33,7 @@ export function AssignmentSection({
   interactionsDisabled: boolean;
   autoAssignPending: boolean;
   showAutoAssign: boolean;
+  autoAssignPlacement?: "header" | "footer";
   highlightUnassigned: boolean;
   onAutoAssign: () => void;
   onUpdated: () => void;
@@ -70,7 +72,7 @@ export function AssignmentSection({
             保存资料会触发自动编组；你也可以随时重新编排。
           </CardDescription>
         </div>
-        {showAutoAssign ? (
+        {showAutoAssign && autoAssignPlacement === "header" ? (
           <Button
             onClick={onAutoAssign}
             disabled={autoAssignPending || interactionsDisabled}
@@ -93,6 +95,16 @@ export function AssignmentSection({
             {unassignedList}
           </>
         )}
+        {showAutoAssign && autoAssignPlacement === "footer" ? (
+          <Button
+            onClick={onAutoAssign}
+            disabled={autoAssignPending || interactionsDisabled}
+            className="w-full"
+          >
+            <Shuffle className="size-4" />
+            {autoAssignPending ? "编组中..." : "自动编组"}
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );

@@ -156,8 +156,26 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   if (!authLoading && !user) {
     return (
-      <div className="flex flex-1 items-center justify-center px-4 text-sm text-muted-foreground">
-        正在等待登录...
+      <div className="flex flex-1 flex-col bg-muted/20">
+        <TripPageHeader
+          tripName={data.trip.name}
+          closed={Boolean(isClosed)}
+          supabase={supabase}
+          showLogout={false}
+          onCopyInvite={() => void handleCopyInvite()}
+        />
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            先登录，再查看和编辑这趟行程。
+          </p>
+          <Button onClick={() => openDialog()}>登录</Button>
+        </div>
+        <PasswordAuthDialog
+          open={authDialog.open}
+          onOpenChange={onOpenChange}
+          supabase={supabase}
+          onAuthSuccess={onAuthSuccess}
+        />
       </div>
     );
   }
@@ -190,7 +208,7 @@ function DashboardInner({ tripId }: { tripId: string }) {
             onUpdated={handleDataUpdated}
           />
         )}
-        renderAssignmentsSection={() => (
+        renderDesktopAssignmentsSection={() => (
           <AssignmentSection
             trip={data.trip}
             members={data.members}
@@ -199,6 +217,22 @@ function DashboardInner({ tripId }: { tripId: string }) {
             interactionsDisabled={Boolean(isClosed)}
             autoAssignPending={pendingAssign}
             showAutoAssign={Boolean(myMember)}
+            autoAssignPlacement="header"
+            highlightUnassigned={Boolean(isMyUnassigned)}
+            onAutoAssign={() => void handleAutoAssign()}
+            onUpdated={refresh}
+          />
+        )}
+        renderMobileAssignmentsSection={() => (
+          <AssignmentSection
+            trip={data.trip}
+            members={data.members}
+            currentUserId={user?.id}
+            canManageAllAssignments={Boolean(isOrganizer)}
+            interactionsDisabled={Boolean(isClosed)}
+            autoAssignPending={pendingAssign}
+            showAutoAssign={Boolean(myMember)}
+            autoAssignPlacement="footer"
             highlightUnassigned={Boolean(isMyUnassigned)}
             onAutoAssign={() => void handleAutoAssign()}
             onUpdated={refresh}
