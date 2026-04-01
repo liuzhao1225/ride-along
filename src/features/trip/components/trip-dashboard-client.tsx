@@ -29,7 +29,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { formatActivityDateDisplay } from "@/lib/activity-date";
 import type { TripDashboardData } from "../types";
 import { getMyRide } from "../model";
 import { TripSummaryCard } from "./trip-summary-card";
@@ -88,8 +87,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
 
   const isOrganizer = user?.id != null && data?.trip.created_by === user.id;
   const isClosed = data?.status === "closed";
-  const tripDateLabel = formatActivityDateDisplay(data?.trip.event_at ?? null);
-
   const mobileTabs = [
     { key: "summary" as const, label: "摘要", icon: ClipboardList },
     { key: "assignments" as const, label: "编组", icon: Route },
@@ -177,14 +174,6 @@ function DashboardInner({ tripId }: { tripId: string }) {
                 <div className="truncate text-xl font-semibold leading-tight sm:text-base">
                   {data.trip.name}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground sm:hidden">
-                  {tripDateLabel ? <span>{tripDateLabel}</span> : null}
-                  <span>·</span>
-                  <span>{isOrganizer ? "你是发起人" : "拼车控制台"}</span>
-                </div>
-                <div className="mt-1 hidden text-xs text-muted-foreground sm:block">
-                  单页控制台：概览、编组、我的资料都在这里
-                </div>
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1 sm:gap-2">
@@ -210,12 +199,11 @@ function DashboardInner({ tripId }: { tripId: string }) {
             ) : null}
             </div>
           </div>
-          <div className="mt-3 hidden items-center gap-2 sm:flex">
-            {tripDateLabel ? <Badge variant="outline">{tripDateLabel}</Badge> : null}
-            <Badge variant={isClosed ? "secondary" : "outline"}>
-              {isClosed ? "已关闭" : isOrganizer ? "发起人视角" : "成员视角"}
-            </Badge>
-          </div>
+          {isClosed ? (
+            <div className="mt-3 hidden items-center gap-2 sm:flex">
+              <Badge variant="secondary">已关闭</Badge>
+            </div>
+          ) : null}
         </div>
       </header>
 
